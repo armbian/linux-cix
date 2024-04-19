@@ -25,9 +25,13 @@
 
 static struct page *fb_deferred_io_page(struct fb_info *info, unsigned long offs)
 {
+	struct fb_deferred_io *fbdefio = info->fbdefio;
 	void *screen_base = (void __force *) info->screen_base;
 	struct page *page;
 
+	if (fbdefio->get_page)
+		return fbdefio->get_page(info, offs);
+	
 	if (is_vmalloc_addr(screen_base + offs))
 		page = vmalloc_to_page(screen_base + offs);
 	else
