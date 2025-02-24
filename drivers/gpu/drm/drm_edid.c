@@ -1817,7 +1817,7 @@ static int edid_block_tag(const void *_block)
 
 static bool edid_block_is_zero(const void *edid)
 {
-	return mem_is_zero(edid, EDID_LENGTH);
+	return !memchr_inv(edid, 0, EDID_LENGTH);
 }
 
 static bool drm_edid_eq(const struct drm_edid *drm_edid,
@@ -2725,6 +2725,7 @@ void drm_edid_get_product_id(const struct drm_edid *drm_edid,
 }
 EXPORT_SYMBOL(drm_edid_get_product_id);
 
+#if 0
 static void decode_date(struct seq_buf *s, const struct drm_edid_product_id *id)
 {
 	int week = id->week_of_manufacture;
@@ -2766,6 +2767,7 @@ void drm_edid_print_product_id(struct drm_printer *p,
 	WARN_ON(seq_buf_has_overflowed(&date));
 }
 EXPORT_SYMBOL(drm_edid_print_product_id);
+#endif
 
 /**
  * drm_edid_get_panel_id - Get a panel's ID from EDID

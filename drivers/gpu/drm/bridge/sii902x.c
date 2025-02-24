@@ -1152,7 +1152,7 @@ err_unreg_audio:
 	return ret;
 }
 
-static int sii902x_probe(struct i2c_client *client)
+static int sii902x_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct device *dev = &client->dev;
 	struct device_node *endpoint;

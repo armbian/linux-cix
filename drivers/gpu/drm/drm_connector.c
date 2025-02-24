@@ -36,8 +36,7 @@
 #include <linux/property.h>
 #include <linux/uaccess.h>
 
-#include <video/cmdline.h>
-
+#include <linux/fb.h>
 #include "drm_crtc_internal.h"
 #include "drm_internal.h"
 
@@ -156,10 +155,9 @@ EXPORT_SYMBOL(drm_get_connector_type_name);
 static void drm_connector_get_cmdline_mode(struct drm_connector *connector)
 {
 	struct drm_cmdline_mode *mode = &connector->cmdline_mode;
-	const char *option;
+	char *option = NULL;
 
-	option = video_get_options(connector->name);
-	if (!option)
+	if (fb_get_options(connector->name, &option))
 		return;
 
 	if (!drm_mode_parse_command_line_for_connector(option,

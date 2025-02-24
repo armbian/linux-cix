@@ -1110,7 +1110,7 @@ static void lt9611_audio_exit(struct lt9611 *lt9611)
 	}
 }
 
-static int lt9611_probe(struct i2c_client *client)
+static int lt9611_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct lt9611 *lt9611;
 	struct device *dev = &client->dev;

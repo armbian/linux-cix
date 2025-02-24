@@ -30,8 +30,6 @@
 #include <linux/list.h>
 #include <linux/irqreturn.h>
 
-#include <video/nomodeset.h>
-
 #include <drm/drm_device.h>
 
 struct drm_fb_helper;
@@ -558,7 +556,7 @@ static inline bool drm_drv_uses_atomic_modeset(struct drm_device *dev)
 /* TODO: Inline drm_firmware_drivers_only() in all its callers. */
 static inline bool drm_firmware_drivers_only(void)
 {
-	return video_firmware_drivers_only();
+	return false;
 }
 
 #if defined(CONFIG_DEBUG_FS)

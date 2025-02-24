@@ -93,7 +93,7 @@ static void drm_sysfs_acpi_register(void) { }
 static void drm_sysfs_acpi_unregister(void) { }
 #endif
 
-static char *drm_devnode(const struct device *dev, umode_t *mode)
+static char *drm_devnode(struct device *dev, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, "dri/%s", dev_name(dev));
 }
@@ -142,7 +142,7 @@ int drm_sysfs_init(void)
 {
 	int err;
 
-	drm_class = class_create("drm");
+	drm_class = class_create(THIS_MODULE, "drm");
 	if (IS_ERR(drm_class))
 		return PTR_ERR(drm_class);
 

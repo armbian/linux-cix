@@ -629,7 +629,7 @@ static int ps8640_bridge_link_panel(struct drm_dp_aux *aux)
 	return devm_mipi_dsi_attach(dev, ps_bridge->dsi);
 }
 
-static int ps8640_probe(struct i2c_client *client)
+static int ps8640_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct device *dev = &client->dev;
 	struct ps8640 *ps_bridge;

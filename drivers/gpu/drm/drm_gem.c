@@ -40,6 +40,7 @@
 #include <linux/string_helpers.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include <linux/vmalloc.h>
 
 #include <drm/drm.h>
 #include <drm/drm_device.h>
@@ -525,13 +526,13 @@ int drm_gem_create_mmap_offset(struct drm_gem_object *obj)
 EXPORT_SYMBOL(drm_gem_create_mmap_offset);
 
 /*
- * Move folios to appropriate lru and release the folios, decrementing the
- * ref count of those folios.
+ * Move pages to appropriate lru and release the pagevec, decrementing the
+ * ref count of those pages.
  */
-static void drm_gem_check_release_batch(struct folio_batch *fbatch)
+static void drm_gem_check_release_pagevec(struct pagevec *pvec)
 {
-	check_move_unevictable_folios(fbatch);
-	__folio_batch_release(fbatch);
+	check_move_unevictable_pages(pvec);
+	__pagevec_release(pvec);
 	cond_resched();
 }
 
@@ -563,10 +564,10 @@ static void drm_gem_check_release_batch(struct folio_batch *fbatch)
 struct page **drm_gem_get_pages(struct drm_gem_object *obj)
 {
 	struct address_space *mapping;
-	struct page **pages;
-	struct folio *folio;
-	struct folio_batch fbatch;
-	long i, j, npages;
+	struct page *p, **pages;
+	struct pagevec pvec;
+	int i, npages;
+
 
 	if (WARN_ON(!obj->filp))
 		return ERR_PTR(-EINVAL);
@@ -588,16 +589,11 @@ struct page **drm_gem_get_pages(struct drm_gem_object *obj)
 
 	mapping_set_unevictable(mapping);
 
-	i = 0;
-	while (i < npages) {
-		long nr;
-		folio = shmem_read_folio_gfp(mapping, i,
-				mapping_gfp_mask(mapping));
-		if (IS_ERR(folio))
+	for (i = 0; i < npages; i++) {
+		p = shmem_read_mapping_page(mapping, i);
+		if (IS_ERR(p))
 			goto fail;
-		nr = min(npages - i, folio_nr_pages(folio));
-		for (j = 0; j < nr; j++, i++)
-			pages[i] = folio_file_page(folio, i);
+		pages[i] = p;
 
 		/* Make sure shmem keeps __GFP_DMA32 allocated pages in the
 		 * correct region during swapin. Note that this requires
@@ -605,26 +601,23 @@ struct page **drm_gem_get_pages(struct drm_gem_object *obj)
 		 * so shmem can relocate pages during swapin if required.
 		 */
 		BUG_ON(mapping_gfp_constraint(mapping, __GFP_DMA32) &&
-				(folio_pfn(folio) >= 0x00100000UL));
+				(page_to_pfn(p) >= 0x00100000UL));
 	}
 
 	return pages;
 
 fail:
 	mapping_clear_unevictable(mapping);
-	folio_batch_init(&fbatch);
-	j = 0;
-	while (j < i) {
-		struct folio *f = page_folio(pages[j]);
-		if (!folio_batch_add(&fbatch, f))
-			drm_gem_check_release_batch(&fbatch);
-		j += folio_nr_pages(f);
+	pagevec_init(&pvec);
+	while (i--) {
+		if (!pagevec_add(&pvec, pages[i]))
+			drm_gem_check_release_pagevec(&pvec);
 	}
-	if (fbatch.nr)
-		drm_gem_check_release_batch(&fbatch);
+	if (pagevec_count(&pvec))
+		drm_gem_check_release_pagevec(&pvec);
 
 	kvfree(pages);
-	return ERR_CAST(folio);
+	return ERR_CAST(p);
 }
 EXPORT_SYMBOL(drm_gem_get_pages);
 
@@ -640,7 +633,7 @@ void drm_gem_put_pages(struct drm_gem_object *obj, struct page **pages,
 {
 	int i, npages;
 	struct address_space *mapping;
-	struct folio_batch fbatch;
+	struct pagevec pvec;
 
 	mapping = file_inode(obj->filp)->i_mapping;
 	mapping_clear_unevictable(mapping);
@@ -653,27 +646,23 @@ void drm_gem_put_pages(struct drm_gem_object *obj, struct page **pages,
 
 	npages = obj->size >> PAGE_SHIFT;
 
-	folio_batch_init(&fbatch);
+	pagevec_init(&pvec);
 	for (i = 0; i < npages; i++) {
-		struct folio *folio;
-
 		if (!pages[i])
 			continue;
-		folio = page_folio(pages[i]);
 
 		if (dirty)
-			folio_mark_dirty(folio);
+			set_page_dirty(pages[i]);
 
 		if (accessed)
-			folio_mark_accessed(folio);
+			mark_page_accessed(pages[i]);
 
 		/* Undo the reference we took when populating the table */
-		if (!folio_batch_add(&fbatch, folio))
-			drm_gem_check_release_batch(&fbatch);
-		i += folio_nr_pages(folio) - 1;
+		if (!pagevec_add(&pvec, pages[i]))
+			drm_gem_check_release_pagevec(&pvec);
 	}
-	if (folio_batch_count(&fbatch))
-		drm_gem_check_release_batch(&fbatch);
+	if (pagevec_count(&pvec))
+		drm_gem_check_release_pagevec(&pvec);
 
 	kvfree(pages);
 }
@@ -1091,7 +1080,7 @@ int drm_gem_mmap_obj(struct drm_gem_object *obj, unsigned long obj_size,
 			goto err_drm_gem_object_put;
 		}
 
-		vm_flags_set(vma, VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP);
+		vma->vm_flags |= VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP;
 		vma->vm_page_prot = pgprot_writecombine(vm_get_page_prot(vma->vm_flags));
 		vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
 	}

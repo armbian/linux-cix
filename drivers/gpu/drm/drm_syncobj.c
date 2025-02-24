@@ -712,17 +712,17 @@ static int drm_syncobj_fd_to_handle(struct drm_file *file_private,
 				    int fd, u32 *handle)
 {
 	struct drm_syncobj *syncobj;
-	CLASS(fd, f)(fd);
+	struct fd f = fdget(fd);
 	int ret;
 
-	if (fd_empty(f))
+	if (!f.file)
 		return -EINVAL;
 
-	if (fd_file(f)->f_op != &drm_syncobj_file_fops)
+	if (f.file->f_op != &drm_syncobj_file_fops)
 		return -EINVAL;
 
 	/* take a reference to put in the idr */
-	syncobj = fd_file(f)->private_data;
+	syncobj = f.file->private_data;
 	drm_syncobj_get(syncobj);
 
 	idr_preload(GFP_KERNEL);
@@ -1407,7 +1407,7 @@ static void syncobj_eventfd_entry_fence_func(struct dma_fence *fence,
 	struct syncobj_eventfd_entry *entry =
 		container_of(cb, struct syncobj_eventfd_entry, fence_cb);
 
-	eventfd_signal(entry->ev_fd_ctx);
+	eventfd_signal(entry->ev_fd_ctx, 1);
 	syncobj_eventfd_entry_free(entry);
 }
 
@@ -1441,13 +1441,13 @@ syncobj_eventfd_entry_func(struct drm_syncobj *syncobj,
 	entry->fence = fence;
 
 	if (entry->flags & DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE) {
-		eventfd_signal(entry->ev_fd_ctx);
+		eventfd_signal(entry->ev_fd_ctx, 1);
 		syncobj_eventfd_entry_free(entry);
 	} else {
 		ret = dma_fence_add_callback(fence, &entry->fence_cb,
 					     syncobj_eventfd_entry_fence_func);
 		if (ret == -ENOENT) {
-			eventfd_signal(entry->ev_fd_ctx);
+			eventfd_signal(entry->ev_fd_ctx, 1);
 			syncobj_eventfd_entry_free(entry);
 		}
 	}
