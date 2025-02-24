@@ -398,7 +398,7 @@ int panthor_device_mmap_io(struct panthor_device *ptdev, struct vm_area_struct *
 		if (vma->vm_end - vma->vm_start != PAGE_SIZE ||
 		    (vma->vm_flags & (VM_WRITE | VM_EXEC)))
 			return -EINVAL;
-		vm_flags_clear(vma, VM_MAYWRITE);
+		vma->vm_flags &= ~VM_MAYWRITE;
 
 		break;
 
@@ -409,9 +409,9 @@ int panthor_device_mmap_io(struct panthor_device *ptdev, struct vm_area_struct *
 	/* Defer actual mapping to the fault handler. */
 	vma->vm_private_data = ptdev;
 	vma->vm_ops = &panthor_mmio_vm_ops;
-	vm_flags_set(vma,
-		     VM_IO | VM_DONTCOPY | VM_DONTEXPAND |
-		     VM_NORESERVE | VM_DONTDUMP | VM_PFNMAP);
+	vma->vm_flags |= VM_IO | VM_DONTCOPY | VM_DONTEXPAND |
+			 VM_NORESERVE | VM_DONTDUMP | VM_PFNMAP;
+
 	return 0;
 }
 

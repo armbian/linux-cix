@@ -1477,7 +1477,6 @@ static const struct file_operations panthor_drm_driver_fops = {
 	.llseek = noop_llseek,
 	.mmap = panthor_mmap,
 	.show_fdinfo = drm_show_fdinfo,
-	.fop_flags = FOP_UNSIGNED_OFFSET,
 };
 
 #ifdef CONFIG_DEBUG_FS
@@ -1589,7 +1588,7 @@ static DEFINE_RUNTIME_DEV_PM_OPS(panthor_pm_ops,
 
 static struct platform_driver panthor_driver = {
 	.probe = panthor_probe,
-	.remove = panthor_remove,
+	.remove_new = panthor_remove,
 	.driver = {
 		.name = "panthor",
 		.pm = pm_ptr(&panthor_pm_ops),
