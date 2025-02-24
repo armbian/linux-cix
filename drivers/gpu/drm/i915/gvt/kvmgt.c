@@ -53,7 +53,7 @@
 #include "intel_gvt.h"
 #include "gvt.h"
 
-MODULE_IMPORT_NS("DMA_BUF");
+MODULE_IMPORT_NS(DMA_BUF);
 MODULE_IMPORT_NS("I915_GVT");
 
 /* helper macros copied from vfio-pci */

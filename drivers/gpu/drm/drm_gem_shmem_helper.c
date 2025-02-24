@@ -22,7 +22,7 @@
 #include <drm/drm_prime.h>
 #include <drm/drm_print.h>
 
-MODULE_IMPORT_NS("DMA_BUF");
+MODULE_IMPORT_NS(DMA_BUF);
 
 /**
  * DOC: overview
