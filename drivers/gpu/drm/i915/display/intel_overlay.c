@@ -29,12 +29,14 @@
 #include <drm/drm_fourcc.h>
 
 #include "gem/i915_gem_internal.h"
+#include "gem/i915_gem_object_frontbuffer.h"
 #include "gem/i915_gem_pm.h"
 #include "gt/intel_gpu_commands.h"
 #include "gt/intel_ring.h"
 
 #include "i915_drv.h"
 #include "i915_reg.h"
+#include "intel_color_regs.h"
 #include "intel_de.h"
 #include "intel_display_types.h"
 #include "intel_frontbuffer.h"
@@ -292,7 +294,7 @@ static void intel_overlay_flip_prepare(struct intel_overlay *overlay,
 	drm_WARN_ON(&overlay->i915->drm, overlay->old_vma);
 
 	if (vma)
-		frontbuffer = intel_frontbuffer_get(vma->obj);
+		frontbuffer = intel_frontbuffer_get(intel_bo_to_drm_bo(vma->obj));
 
 	intel_frontbuffer_track(overlay->frontbuffer, frontbuffer,
 				INTEL_FRONTBUFFER_OVERLAY(pipe));
@@ -935,21 +937,27 @@ static int check_overlay_possible_on_crtc(struct intel_overlay *overlay,
 static void update_pfit_vscale_ratio(struct intel_overlay *overlay)
 {
 	struct drm_i915_private *dev_priv = overlay->i915;
-	u32 pfit_control = intel_de_read(dev_priv, PFIT_CONTROL);
 	u32 ratio;
 
 	/* XXX: This is not the same logic as in the xorg driver, but more in
 	 * line with the intel documentation for the i965
 	 */
 	if (DISPLAY_VER(dev_priv) >= 4) {
+		u32 tmp = intel_de_read(dev_priv, PFIT_PGM_RATIOS(dev_priv));
+
 		/* on i965 use the PGM reg to read out the autoscaler values */
-		ratio = intel_de_read(dev_priv, PFIT_PGM_RATIOS) >> PFIT_VERT_SCALE_SHIFT_965;
+		ratio = REG_FIELD_GET(PFIT_VERT_SCALE_MASK_965, tmp);
 	} else {
-		if (pfit_control & VERT_AUTO_SCALE)
-			ratio = intel_de_read(dev_priv, PFIT_AUTO_RATIOS);
+		u32 tmp;
+
+		if (intel_de_read(dev_priv, PFIT_CONTROL(dev_priv)) & PFIT_VERT_AUTO_SCALE)
+			tmp = intel_de_read(dev_priv,
+					    PFIT_AUTO_RATIOS(dev_priv));
 		else
-			ratio = intel_de_read(dev_priv, PFIT_PGM_RATIOS);
-		ratio >>= PFIT_VERT_SCALE_SHIFT;
+			tmp = intel_de_read(dev_priv,
+					    PFIT_PGM_RATIOS(dev_priv));
+
+		ratio = REG_FIELD_GET(PFIT_VERT_SCALE_MASK, tmp);
 	}
 
 	overlay->pfit_vscale_ratio = ratio;
@@ -966,10 +974,11 @@ static int check_overlay_dst(struct intel_overlay *overlay,
 		      rec->dst_width, rec->dst_height);
 
 	clipped = req;
-	drm_rect_intersect(&clipped, &crtc_state->pipe_src);
 
-	if (!drm_rect_visible(&clipped) ||
-	    !drm_rect_equals(&clipped, &req))
+	if (!drm_rect_intersect(&clipped, &crtc_state->pipe_src))
+		return -EINVAL;
+
+	if (!drm_rect_equals(&clipped, &req))
 		return -EINVAL;
 
 	return 0;
@@ -1344,11 +1353,12 @@ out_unlock:
 static int get_registers(struct intel_overlay *overlay, bool use_phys)
 {
 	struct drm_i915_private *i915 = overlay->i915;
-	struct drm_i915_gem_object *obj;
+	struct drm_i915_gem_object *obj = ERR_PTR(-ENODEV);
 	struct i915_vma *vma;
 	int err;
 
-	obj = i915_gem_object_create_stolen(i915, PAGE_SIZE);
+	if (!IS_METEORLAKE(i915)) /* Wa_22018444074 */
+		obj = i915_gem_object_create_stolen(i915, PAGE_SIZE);
 	if (IS_ERR(obj))
 		obj = i915_gem_object_create_internal(i915, PAGE_SIZE);
 	if (IS_ERR(obj))
@@ -1447,18 +1457,19 @@ void intel_overlay_cleanup(struct drm_i915_private *dev_priv)
 
 #if IS_ENABLED(CONFIG_DRM_I915_CAPTURE_ERROR)
 
-struct intel_overlay_error_state {
+struct intel_overlay_snapshot {
 	struct overlay_registers regs;
 	unsigned long base;
 	u32 dovsta;
 	u32 isr;
 };
 
-struct intel_overlay_error_state *
-intel_overlay_capture_error_state(struct drm_i915_private *dev_priv)
+struct intel_overlay_snapshot *
+intel_overlay_snapshot_capture(struct intel_display *display)
 {
+	struct drm_i915_private *dev_priv = to_i915(display->drm);
 	struct intel_overlay *overlay = dev_priv->display.overlay;
-	struct intel_overlay_error_state *error;
+	struct intel_overlay_snapshot *error;
 
 	if (!overlay || !overlay->active)
 		return NULL;
@@ -1477,15 +1488,17 @@ intel_overlay_capture_error_state(struct drm_i915_private *dev_priv)
 }
 
 void
-intel_overlay_print_error_state(struct drm_i915_error_state_buf *m,
-				struct intel_overlay_error_state *error)
+intel_overlay_snapshot_print(const struct intel_overlay_snapshot *error,
+			     struct drm_printer *p)
 {
-	i915_error_printf(m, "Overlay, status: 0x%08x, interrupt: 0x%08x\n",
-			  error->dovsta, error->isr);
-	i915_error_printf(m, "  Register file at 0x%08lx:\n",
-			  error->base);
+	if (!error)
+		return;
 
-#define P(x) i915_error_printf(m, "    " #x ":	0x%08x\n", error->regs.x)
+	drm_printf(p, "Overlay, status: 0x%08x, interrupt: 0x%08x\n",
+		   error->dovsta, error->isr);
+	drm_printf(p, "  Register file at 0x%08lx:\n", error->base);
+
+#define P(x) drm_printf(p, "    " #x ": 0x%08x\n", error->regs.x)
 	P(OBUF_0Y);
 	P(OBUF_1Y);
 	P(OBUF_0U);

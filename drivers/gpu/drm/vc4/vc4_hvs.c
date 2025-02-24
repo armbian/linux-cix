@@ -28,10 +28,12 @@
 #include <drm/drm_drv.h>
 #include <drm/drm_vblank.h>
 
+#include <soc/bcm2835/raspberrypi-firmware.h>
+
 #include "vc4_drv.h"
 #include "vc4_regs.h"
 
-static const struct debugfs_reg32 hvs_regs[] = {
+static const struct debugfs_reg32 vc4_hvs_regs[] = {
 	VC4_REG32(SCALER_DISPCTRL),
 	VC4_REG32(SCALER_DISPSTAT),
 	VC4_REG32(SCALER_DISPID),
@@ -91,8 +93,8 @@ void vc4_hvs_dump_state(struct vc4_hvs *hvs)
 
 static int vc4_hvs_debugfs_underrun(struct seq_file *m, void *data)
 {
-	struct drm_info_node *node = m->private;
-	struct drm_device *dev = node->minor->dev;
+	struct drm_debugfs_entry *entry = m->private;
+	struct drm_device *dev = entry->dev;
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct drm_printer p = drm_seq_file_printer(m);
 
@@ -103,12 +105,13 @@ static int vc4_hvs_debugfs_underrun(struct seq_file *m, void *data)
 
 static int vc4_hvs_debugfs_dlist(struct seq_file *m, void *data)
 {
-	struct drm_info_node *node = m->private;
-	struct drm_device *dev = node->minor->dev;
+	struct drm_debugfs_entry *entry = m->private;
+	struct drm_device *dev = entry->dev;
 	struct vc4_dev *vc4 = to_vc4_dev(dev);
 	struct vc4_hvs *hvs = vc4->hvs;
 	struct drm_printer p = drm_seq_file_printer(m);
-	unsigned int next_entry_start = 0;
+	unsigned int dlist_mem_size = hvs->dlist_mem_size;
+	unsigned int next_entry_start;
 	unsigned int i, j;
 	u32 dlist_word, dispstat;
 
@@ -122,8 +125,9 @@ static int vc4_hvs_debugfs_dlist(struct seq_file *m, void *data)
 		}
 
 		drm_printf(&p, "HVS chan %u:\n", i);
+		next_entry_start = 0;
 
-		for (j = HVS_READ(SCALER_DISPLISTX(i)); j < 256; j++) {
+		for (j = HVS_READ(SCALER_DISPLISTX(i)); j < dlist_mem_size; j++) {
 			dlist_word = readl((u32 __iomem *)vc4->hvs->dlist + j);
 			drm_printf(&p, "dlist: %02d: 0x%08x\n", j,
 				   dlist_word);
@@ -189,8 +193,8 @@ static int vc4_hvs_upload_linear_kernel(struct vc4_hvs *hvs,
 
 	ret = drm_mm_insert_node(&hvs->dlist_mm, space, VC4_KERNEL_DWORDS);
 	if (ret) {
-		DRM_ERROR("Failed to allocate space for filter kernel: %d\n",
-			  ret);
+		drm_err(&hvs->vc4->base, "Failed to allocate space for filter kernel: %d\n",
+			ret);
 		return ret;
 	}
 
@@ -220,6 +224,9 @@ static void vc4_hvs_lut_load(struct vc4_hvs *hvs,
 	if (!drm_dev_enter(drm, &idx))
 		return;
 
+	if (hvs->vc4->gen != VC4_GEN_4)
+		goto exit;
+
 	/* The LUT memory is laid out with each HVS channel in order,
 	 * each of which takes 256 writes for R, 256 for G, then 256
 	 * for B.
@@ -235,6 +242,7 @@ static void vc4_hvs_lut_load(struct vc4_hvs *hvs,
 	for (i = 0; i < crtc->gamma_size; i++)
 		HVS_WRITE(SCALER_GAMDATA, vc4_crtc->lut_b[i]);
 
+exit:
 	drm_dev_exit(idx);
 }
 
@@ -289,53 +297,60 @@ int vc4_hvs_get_fifo_from_output(struct vc4_hvs *hvs, unsigned int output)
 	u32 reg;
 	int ret;
 
-	if (!vc4->is_vc5)
+	switch (vc4->gen) {
+	case VC4_GEN_4:
 		return output;
 
-	/*
-	 * NOTE: We should probably use drm_dev_enter()/drm_dev_exit()
-	 * here, but this function is only used during the DRM device
-	 * initialization, so we should be fine.
-	 */
+	case VC4_GEN_5:
+		/*
+		 * NOTE: We should probably use
+		 * drm_dev_enter()/drm_dev_exit() here, but this
+		 * function is only used during the DRM device
+		 * initialization, so we should be fine.
+		 */
 
-	switch (output) {
-	case 0:
-		return 0;
+		switch (output) {
+		case 0:
+			return 0;
 
-	case 1:
-		return 1;
+		case 1:
+			return 1;
 
-	case 2:
-		reg = HVS_READ(SCALER_DISPECTRL);
-		ret = FIELD_GET(SCALER_DISPECTRL_DSP2_MUX_MASK, reg);
-		if (ret == 0)
-			return 2;
+		case 2:
+			reg = HVS_READ(SCALER_DISPECTRL);
+			ret = FIELD_GET(SCALER_DISPECTRL_DSP2_MUX_MASK, reg);
+			if (ret == 0)
+				return 2;
 
-		return 0;
+			return 0;
 
-	case 3:
-		reg = HVS_READ(SCALER_DISPCTRL);
-		ret = FIELD_GET(SCALER_DISPCTRL_DSP3_MUX_MASK, reg);
-		if (ret == 3)
+		case 3:
+			reg = HVS_READ(SCALER_DISPCTRL);
+			ret = FIELD_GET(SCALER_DISPCTRL_DSP3_MUX_MASK, reg);
+			if (ret == 3)
+				return -EPIPE;
+
+			return ret;
+
+		case 4:
+			reg = HVS_READ(SCALER_DISPEOLN);
+			ret = FIELD_GET(SCALER_DISPEOLN_DSP4_MUX_MASK, reg);
+			if (ret == 3)
+				return -EPIPE;
+
+			return ret;
+
+		case 5:
+			reg = HVS_READ(SCALER_DISPDITHER);
+			ret = FIELD_GET(SCALER_DISPDITHER_DSP5_MUX_MASK, reg);
+			if (ret == 3)
+				return -EPIPE;
+
+			return ret;
+
+		default:
 			return -EPIPE;
-
-		return ret;
-
-	case 4:
-		reg = HVS_READ(SCALER_DISPEOLN);
-		ret = FIELD_GET(SCALER_DISPEOLN_DSP4_MUX_MASK, reg);
-		if (ret == 3)
-			return -EPIPE;
-
-		return ret;
-
-	case 5:
-		reg = HVS_READ(SCALER_DISPDITHER);
-		ret = FIELD_GET(SCALER_DISPDITHER_DSP5_MUX_MASK, reg);
-		if (ret == 3)
-			return -EPIPE;
-
-		return ret;
+		}
 
 	default:
 		return -EPIPE;
@@ -370,7 +385,7 @@ static int vc4_hvs_init_channel(struct vc4_hvs *hvs, struct drm_crtc *crtc,
 	dispctrl = SCALER_DISPCTRLX_ENABLE;
 	dispbkgndx = HVS_READ(SCALER_DISPBKGNDX(chan));
 
-	if (!vc4->is_vc5) {
+	if (vc4->gen == VC4_GEN_4) {
 		dispctrl |= VC4_SET_FIELD(mode->hdisplay,
 					  SCALER_DISPCTRLX_WIDTH) |
 			    VC4_SET_FIELD(mode->vdisplay,
@@ -392,7 +407,7 @@ static int vc4_hvs_init_channel(struct vc4_hvs *hvs, struct drm_crtc *crtc,
 	dispbkgndx &= ~SCALER_DISPBKGND_INTERLACE;
 
 	HVS_WRITE(SCALER_DISPBKGNDX(chan), dispbkgndx |
-		  ((!vc4->is_vc5) ? SCALER_DISPBKGND_GAMMA : 0) |
+		  ((vc4->gen == VC4_GEN_4) ? SCALER_DISPBKGND_GAMMA : 0) |
 		  (interlace ? SCALER_DISPBKGND_INTERLACE : 0));
 
 	/* Reload the LUT, since the SRAMs would have been disabled if
@@ -413,13 +428,11 @@ void vc4_hvs_stop_channel(struct vc4_hvs *hvs, unsigned int chan)
 	if (!drm_dev_enter(drm, &idx))
 		return;
 
-	if (HVS_READ(SCALER_DISPCTRLX(chan)) & SCALER_DISPCTRLX_ENABLE)
+	if (!(HVS_READ(SCALER_DISPCTRLX(chan)) & SCALER_DISPCTRLX_ENABLE))
 		goto out;
 
-	HVS_WRITE(SCALER_DISPCTRLX(chan),
-		  HVS_READ(SCALER_DISPCTRLX(chan)) | SCALER_DISPCTRLX_RESET);
-	HVS_WRITE(SCALER_DISPCTRLX(chan),
-		  HVS_READ(SCALER_DISPCTRLX(chan)) & ~SCALER_DISPCTRLX_ENABLE);
+	HVS_WRITE(SCALER_DISPCTRLX(chan), SCALER_DISPCTRLX_RESET);
+	HVS_WRITE(SCALER_DISPCTRLX(chan), 0);
 
 	/* Once we leave, the scaler should be disabled and its fifo empty. */
 	WARN_ON_ONCE(HVS_READ(SCALER_DISPCTRLX(chan)) & SCALER_DISPCTRLX_RESET);
@@ -454,17 +467,29 @@ int vc4_hvs_atomic_check(struct drm_crtc *crtc, struct drm_atomic_state *state)
 	if (hweight32(crtc_state->connector_mask) > 1)
 		return -EINVAL;
 
-	drm_atomic_crtc_state_for_each_plane_state(plane, plane_state, crtc_state)
-		dlist_count += vc4_plane_dlist_size(plane_state);
+	drm_atomic_crtc_state_for_each_plane_state(plane, plane_state, crtc_state) {
+		u32 plane_dlist_count = vc4_plane_dlist_size(plane_state);
+
+		drm_dbg_driver(dev, "[CRTC:%d:%s] Found [PLANE:%d:%s] with DLIST size: %u\n",
+			       crtc->base.id, crtc->name,
+			       plane->base.id, plane->name,
+			       plane_dlist_count);
+
+		dlist_count += plane_dlist_count;
+	}
 
 	dlist_count++; /* Account for SCALER_CTL0_END. */
 
+	drm_dbg_driver(dev, "[CRTC:%d:%s] Allocating DLIST block with size: %u\n",
+		       crtc->base.id, crtc->name, dlist_count);
 	spin_lock_irqsave(&vc4->hvs->mm_lock, flags);
 	ret = drm_mm_insert_node(&vc4->hvs->dlist_mm, &vc4_state->mm,
 				 dlist_count);
 	spin_unlock_irqrestore(&vc4->hvs->mm_lock, flags);
-	if (ret)
+	if (ret) {
+		drm_err(dev, "Failed to allocate DLIST entry: %d\n", ret);
 		return ret;
+	}
 
 	return 0;
 }
@@ -568,6 +593,8 @@ void vc4_hvs_atomic_flush(struct drm_crtc *crtc,
 	bool enable_bg_fill = false;
 	u32 __iomem *dlist_start = vc4->hvs->dlist + vc4_state->mm.start;
 	u32 __iomem *dlist_next = dlist_start;
+	unsigned int zpos = 0;
+	bool found = false;
 	int idx;
 
 	if (!drm_dev_enter(dev, &idx)) {
@@ -575,29 +602,43 @@ void vc4_hvs_atomic_flush(struct drm_crtc *crtc,
 		return;
 	}
 
+	if (vc4_state->assigned_channel == VC4_HVS_CHANNEL_DISABLED)
+		goto exit;
+
 	if (debug_dump_regs) {
 		DRM_INFO("CRTC %d HVS before:\n", drm_crtc_index(crtc));
 		vc4_hvs_dump_state(hvs);
 	}
 
 	/* Copy all the active planes' dlist contents to the hardware dlist. */
-	drm_atomic_crtc_for_each_plane(plane, crtc) {
-		/* Is this the first active plane? */
-		if (dlist_next == dlist_start) {
-			/* We need to enable background fill when a plane
-			 * could be alpha blending from the background, i.e.
-			 * where no other plane is underneath. It suffices to
-			 * consider the first active plane here since we set
-			 * needs_bg_fill such that either the first plane
-			 * already needs it or all planes on top blend from
-			 * the first or a lower plane.
-			 */
-			vc4_plane_state = to_vc4_plane_state(plane->state);
-			enable_bg_fill = vc4_plane_state->needs_bg_fill;
+	do {
+		found = false;
+
+		drm_atomic_crtc_for_each_plane(plane, crtc) {
+			if (plane->state->normalized_zpos != zpos)
+				continue;
+
+			/* Is this the first active plane? */
+			if (dlist_next == dlist_start) {
+				/* We need to enable background fill when a plane
+				 * could be alpha blending from the background, i.e.
+				 * where no other plane is underneath. It suffices to
+				 * consider the first active plane here since we set
+				 * needs_bg_fill such that either the first plane
+				 * already needs it or all planes on top blend from
+				 * the first or a lower plane.
+				 */
+				vc4_plane_state = to_vc4_plane_state(plane->state);
+				enable_bg_fill = vc4_plane_state->needs_bg_fill;
+			}
+
+			dlist_next += vc4_plane_write_dlist(plane, dlist_next);
+
+			found = true;
 		}
 
-		dlist_next += vc4_plane_write_dlist(plane, dlist_next);
-	}
+		zpos++;
+	} while (found);
 
 	writel(SCALER_CTL0_END, dlist_next);
 	dlist_next++;
@@ -645,12 +686,14 @@ void vc4_hvs_atomic_flush(struct drm_crtc *crtc,
 		vc4_hvs_dump_state(hvs);
 	}
 
+exit:
 	drm_dev_exit(idx);
 }
 
 void vc4_hvs_mask_underrun(struct vc4_hvs *hvs, int channel)
 {
-	struct drm_device *drm = &hvs->vc4->base;
+	struct vc4_dev *vc4 = hvs->vc4;
+	struct drm_device *drm = &vc4->base;
 	u32 dispctrl;
 	int idx;
 
@@ -658,8 +701,9 @@ void vc4_hvs_mask_underrun(struct vc4_hvs *hvs, int channel)
 		return;
 
 	dispctrl = HVS_READ(SCALER_DISPCTRL);
-	dispctrl &= ~(hvs->vc4->is_vc5 ? SCALER5_DISPCTRL_DSPEISLUR(channel) :
-					 SCALER_DISPCTRL_DSPEISLUR(channel));
+	dispctrl &= ~((vc4->gen == VC4_GEN_5) ?
+		      SCALER5_DISPCTRL_DSPEISLUR(channel) :
+		      SCALER_DISPCTRL_DSPEISLUR(channel));
 
 	HVS_WRITE(SCALER_DISPCTRL, dispctrl);
 
@@ -668,7 +712,8 @@ void vc4_hvs_mask_underrun(struct vc4_hvs *hvs, int channel)
 
 void vc4_hvs_unmask_underrun(struct vc4_hvs *hvs, int channel)
 {
-	struct drm_device *drm = &hvs->vc4->base;
+	struct vc4_dev *vc4 = hvs->vc4;
+	struct drm_device *drm = &vc4->base;
 	u32 dispctrl;
 	int idx;
 
@@ -676,8 +721,9 @@ void vc4_hvs_unmask_underrun(struct vc4_hvs *hvs, int channel)
 		return;
 
 	dispctrl = HVS_READ(SCALER_DISPCTRL);
-	dispctrl |= (hvs->vc4->is_vc5 ? SCALER5_DISPCTRL_DSPEISLUR(channel) :
-					SCALER_DISPCTRL_DSPEISLUR(channel));
+	dispctrl |= ((vc4->gen == VC4_GEN_5) ?
+		     SCALER5_DISPCTRL_DSPEISLUR(channel) :
+		     SCALER_DISPCTRL_DSPEISLUR(channel));
 
 	HVS_WRITE(SCALER_DISPSTAT,
 		  SCALER_DISPSTAT_EUFLOW(channel));
@@ -720,8 +766,10 @@ static irqreturn_t vc4_hvs_irq_handler(int irq, void *data)
 	control = HVS_READ(SCALER_DISPCTRL);
 
 	for (channel = 0; channel < SCALER_CHANNELS_COUNT; channel++) {
-		dspeislur = vc4->is_vc5 ? SCALER5_DISPCTRL_DSPEISLUR(channel) :
-					  SCALER_DISPCTRL_DSPEISLUR(channel);
+		dspeislur = (vc4->gen == VC4_GEN_5) ?
+			SCALER5_DISPCTRL_DSPEISLUR(channel) :
+			SCALER_DISPCTRL_DSPEISLUR(channel);
+
 		/* Interrupt masking is not always honored, so check it here. */
 		if (status & SCALER_DISPSTAT_EUFLOW(channel) &&
 		    control & dspeislur) {
@@ -745,76 +793,38 @@ int vc4_hvs_debugfs_init(struct drm_minor *minor)
 	struct drm_device *drm = minor->dev;
 	struct vc4_dev *vc4 = to_vc4_dev(drm);
 	struct vc4_hvs *hvs = vc4->hvs;
-	int ret;
 
 	if (!vc4->hvs)
 		return -ENODEV;
 
-	if (!vc4->is_vc5)
+	if (vc4->gen == VC4_GEN_4)
 		debugfs_create_bool("hvs_load_tracker", S_IRUGO | S_IWUSR,
 				    minor->debugfs_root,
 				    &vc4->load_tracker_enabled);
 
-	ret = vc4_debugfs_add_file(minor, "hvs_dlists",
-				   vc4_hvs_debugfs_dlist, NULL);
-	if (ret)
-		return ret;
+	drm_debugfs_add_file(drm, "hvs_dlists", vc4_hvs_debugfs_dlist, NULL);
 
-	ret = vc4_debugfs_add_file(minor, "hvs_underrun",
-				   vc4_hvs_debugfs_underrun, NULL);
-	if (ret)
-		return ret;
+	drm_debugfs_add_file(drm, "hvs_underrun", vc4_hvs_debugfs_underrun, NULL);
 
-	ret = vc4_debugfs_add_regset32(minor, "hvs_regs",
-				       &hvs->regset);
-	if (ret)
-		return ret;
+	vc4_debugfs_add_regset32(drm, "hvs_regs", &hvs->regset);
 
 	return 0;
 }
 
-static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
+struct vc4_hvs *__vc4_hvs_alloc(struct vc4_dev *vc4,
+				void __iomem *regs,
+				struct platform_device *pdev)
 {
-	struct platform_device *pdev = to_platform_device(dev);
-	struct drm_device *drm = dev_get_drvdata(master);
-	struct vc4_dev *vc4 = to_vc4_dev(drm);
-	struct vc4_hvs *hvs = NULL;
-	int ret;
-	u32 dispctrl;
-	u32 reg;
+	struct drm_device *drm = &vc4->base;
+	struct vc4_hvs *hvs;
 
 	hvs = drmm_kzalloc(drm, sizeof(*hvs), GFP_KERNEL);
 	if (!hvs)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
+
 	hvs->vc4 = vc4;
+	hvs->regs = regs;
 	hvs->pdev = pdev;
-
-	hvs->regs = vc4_ioremap_regs(pdev, 0);
-	if (IS_ERR(hvs->regs))
-		return PTR_ERR(hvs->regs);
-
-	hvs->regset.base = hvs->regs;
-	hvs->regset.regs = hvs_regs;
-	hvs->regset.nregs = ARRAY_SIZE(hvs_regs);
-
-	if (vc4->is_vc5) {
-		hvs->core_clk = devm_clk_get(&pdev->dev, NULL);
-		if (IS_ERR(hvs->core_clk)) {
-			dev_err(&pdev->dev, "Couldn't get core clock\n");
-			return PTR_ERR(hvs->core_clk);
-		}
-
-		ret = clk_prepare_enable(hvs->core_clk);
-		if (ret) {
-			dev_err(&pdev->dev, "Couldn't enable the core clock\n");
-			return ret;
-		}
-	}
-
-	if (!vc4->is_vc5)
-		hvs->dlist = hvs->regs + SCALER_DLIST_START;
-	else
-		hvs->dlist = hvs->regs + SCALER5_DLIST_START;
 
 	spin_lock_init(&hvs->mm_lock);
 
@@ -823,32 +833,36 @@ static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
 	 * our 16K), since we don't want to scramble the screen when
 	 * transitioning from the firmware's boot setup to runtime.
 	 */
+	hvs->dlist_mem_size = (SCALER_DLIST_SIZE >> 2) - HVS_BOOTLOADER_DLIST_END;
 	drm_mm_init(&hvs->dlist_mm,
 		    HVS_BOOTLOADER_DLIST_END,
-		    (SCALER_DLIST_SIZE >> 2) - HVS_BOOTLOADER_DLIST_END);
+		    hvs->dlist_mem_size);
 
 	/* Set up the HVS LBM memory manager.  We could have some more
 	 * complicated data structure that allowed reuse of LBM areas
 	 * between planes when they don't overlap on the screen, but
 	 * for now we just allocate globally.
 	 */
-	if (!vc4->is_vc5)
+	if (vc4->gen == VC4_GEN_4)
 		/* 48k words of 2x12-bit pixels */
 		drm_mm_init(&hvs->lbm_mm, 0, 48 * 1024);
 	else
 		/* 60k words of 4x12-bit pixels */
 		drm_mm_init(&hvs->lbm_mm, 0, 60 * 1024);
 
-	/* Upload filter kernels.  We only have the one for now, so we
-	 * keep it around for the lifetime of the driver.
-	 */
-	ret = vc4_hvs_upload_linear_kernel(hvs,
-					   &hvs->mitchell_netravali_filter,
-					   mitchell_netravali_1_3_1_3_kernel);
-	if (ret)
-		return ret;
-
 	vc4->hvs = hvs;
+
+	return hvs;
+}
+
+static int vc4_hvs_hw_init(struct vc4_hvs *hvs)
+{
+	struct vc4_dev *vc4 = hvs->vc4;
+	u32 dispctrl, reg;
+
+	dispctrl = HVS_READ(SCALER_DISPCTRL);
+	dispctrl |= SCALER_DISPCTRL_ENABLE;
+	HVS_WRITE(SCALER_DISPCTRL, dispctrl);
 
 	reg = HVS_READ(SCALER_DISPECTRL);
 	reg &= ~SCALER_DISPECTRL_DSP2_MUX_MASK;
@@ -871,13 +885,11 @@ static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
 		  reg | VC4_SET_FIELD(3, SCALER_DISPDITHER_DSP5_MUX));
 
 	dispctrl = HVS_READ(SCALER_DISPCTRL);
-
-	dispctrl |= SCALER_DISPCTRL_ENABLE;
 	dispctrl |= SCALER_DISPCTRL_DISPEIRQ(0) |
 		    SCALER_DISPCTRL_DISPEIRQ(1) |
 		    SCALER_DISPCTRL_DISPEIRQ(2);
 
-	if (!vc4->is_vc5)
+	if (vc4->gen == VC4_GEN_4)
 		dispctrl &= ~(SCALER_DISPCTRL_DMAEIRQ |
 			      SCALER_DISPCTRL_SLVWREIRQ |
 			      SCALER_DISPCTRL_SLVRDEIRQ |
@@ -917,7 +929,173 @@ static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
 	dispctrl |= VC4_SET_FIELD(2, SCALER_DISPCTRL_PANIC1);
 	dispctrl |= VC4_SET_FIELD(2, SCALER_DISPCTRL_PANIC2);
 
+	/* Set AXI panic mode.
+	 * VC4 panics when < 2 lines in FIFO.
+	 * VC5 panics when less than 1 line in the FIFO.
+	 */
+	dispctrl &= ~(SCALER_DISPCTRL_PANIC0_MASK |
+		      SCALER_DISPCTRL_PANIC1_MASK |
+		      SCALER_DISPCTRL_PANIC2_MASK);
+	dispctrl |= VC4_SET_FIELD(2, SCALER_DISPCTRL_PANIC0);
+	dispctrl |= VC4_SET_FIELD(2, SCALER_DISPCTRL_PANIC1);
+	dispctrl |= VC4_SET_FIELD(2, SCALER_DISPCTRL_PANIC2);
+
 	HVS_WRITE(SCALER_DISPCTRL, dispctrl);
+
+	return 0;
+}
+
+static int vc4_hvs_cob_init(struct vc4_hvs *hvs)
+{
+	struct vc4_dev *vc4 = hvs->vc4;
+	u32 reg, top;
+
+	/*
+	 * Recompute Composite Output Buffer (COB) allocations for the
+	 * displays
+	 */
+	switch (vc4->gen) {
+	case VC4_GEN_4:
+		/* The COB is 20736 pixels, or just over 10 lines at 2048 wide.
+		 * The bottom 2048 pixels are full 32bpp RGBA (intended for the
+		 * TXP composing RGBA to memory), whilst the remainder are only
+		 * 24bpp RGB.
+		 *
+		 * Assign 3 lines to channels 1 & 2, and just over 4 lines to
+		 * channel 0.
+		 */
+		#define VC4_COB_SIZE		20736
+		#define VC4_COB_LINE_WIDTH	2048
+		#define VC4_COB_NUM_LINES	3
+		reg = 0;
+		top = VC4_COB_LINE_WIDTH * VC4_COB_NUM_LINES;
+		reg |= (top - 1) << 16;
+		HVS_WRITE(SCALER_DISPBASE2, reg);
+		reg = top;
+		top += VC4_COB_LINE_WIDTH * VC4_COB_NUM_LINES;
+		reg |= (top - 1) << 16;
+		HVS_WRITE(SCALER_DISPBASE1, reg);
+		reg = top;
+		top = VC4_COB_SIZE;
+		reg |= (top - 1) << 16;
+		HVS_WRITE(SCALER_DISPBASE0, reg);
+		break;
+
+	case VC4_GEN_5:
+		/* The COB is 44416 pixels, or 10.8 lines at 4096 wide.
+		 * The bottom 4096 pixels are full RGBA (intended for the TXP
+		 * composing RGBA to memory), whilst the remainder are only
+		 * RGB. Addressing is always pixel wide.
+		 *
+		 * Assign 3 lines of 4096 to channels 1 & 2, and just over 4
+		 * lines. to channel 0.
+		 */
+		#define VC5_COB_SIZE		44416
+		#define VC5_COB_LINE_WIDTH	4096
+		#define VC5_COB_NUM_LINES	3
+		reg = 0;
+		top = VC5_COB_LINE_WIDTH * VC5_COB_NUM_LINES;
+		reg |= top << 16;
+		HVS_WRITE(SCALER_DISPBASE2, reg);
+		top += 16;
+		reg = top;
+		top += VC5_COB_LINE_WIDTH * VC5_COB_NUM_LINES;
+		reg |= top << 16;
+		HVS_WRITE(SCALER_DISPBASE1, reg);
+		top += 16;
+		reg = top;
+		top = VC5_COB_SIZE;
+		reg |= top << 16;
+		HVS_WRITE(SCALER_DISPBASE0, reg);
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int vc4_hvs_bind(struct device *dev, struct device *master, void *data)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct drm_device *drm = dev_get_drvdata(master);
+	struct vc4_dev *vc4 = to_vc4_dev(drm);
+	struct vc4_hvs *hvs = NULL;
+	void __iomem *regs;
+	int ret;
+
+	regs = vc4_ioremap_regs(pdev, 0);
+	if (IS_ERR(regs))
+		return PTR_ERR(regs);
+
+	hvs = __vc4_hvs_alloc(vc4, regs, pdev);
+	if (IS_ERR(hvs))
+		return PTR_ERR(hvs);
+
+	hvs->regset.base = hvs->regs;
+	hvs->regset.regs = vc4_hvs_regs;
+	hvs->regset.nregs = ARRAY_SIZE(vc4_hvs_regs);
+
+	if (vc4->gen == VC4_GEN_5) {
+		struct rpi_firmware *firmware;
+		struct device_node *node;
+		unsigned int max_rate;
+
+		node = rpi_firmware_find_node();
+		if (!node)
+			return -EINVAL;
+
+		firmware = rpi_firmware_get(node);
+		of_node_put(node);
+		if (!firmware)
+			return -EPROBE_DEFER;
+
+		hvs->core_clk = devm_clk_get(&pdev->dev, NULL);
+		if (IS_ERR(hvs->core_clk)) {
+			dev_err(&pdev->dev, "Couldn't get core clock\n");
+			return PTR_ERR(hvs->core_clk);
+		}
+
+		max_rate = rpi_firmware_clk_get_max_rate(firmware,
+							 RPI_FIRMWARE_CORE_CLK_ID);
+		rpi_firmware_put(firmware);
+		if (max_rate >= 550000000)
+			hvs->vc5_hdmi_enable_hdmi_20 = true;
+
+		if (max_rate >= 600000000)
+			hvs->vc5_hdmi_enable_4096by2160 = true;
+
+		hvs->max_core_rate = max_rate;
+
+		ret = clk_prepare_enable(hvs->core_clk);
+		if (ret) {
+			dev_err(&pdev->dev, "Couldn't enable the core clock\n");
+			return ret;
+		}
+	}
+
+	if (vc4->gen == VC4_GEN_4)
+		hvs->dlist = hvs->regs + SCALER_DLIST_START;
+	else
+		hvs->dlist = hvs->regs + SCALER5_DLIST_START;
+
+	ret = vc4_hvs_hw_init(hvs);
+	if (ret)
+		return ret;
+
+	/* Upload filter kernels.  We only have the one for now, so we
+	 * keep it around for the lifetime of the driver.
+	 */
+	ret = vc4_hvs_upload_linear_kernel(hvs,
+					   &hvs->mitchell_netravali_filter,
+					   mitchell_netravali_1_3_1_3_kernel);
+	if (ret)
+		return ret;
+
+	ret = vc4_hvs_cob_init(hvs);
+	if (ret)
+		return ret;
 
 	ret = devm_request_irq(dev, platform_get_irq(pdev, 0),
 			       vc4_hvs_irq_handler, 0, "vc4 hvs", drm);
@@ -962,10 +1140,9 @@ static int vc4_hvs_dev_probe(struct platform_device *pdev)
 	return component_add(&pdev->dev, &vc4_hvs_ops);
 }
 
-static int vc4_hvs_dev_remove(struct platform_device *pdev)
+static void vc4_hvs_dev_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &vc4_hvs_ops);
-	return 0;
 }
 
 static const struct of_device_id vc4_hvs_dt_match[] = {

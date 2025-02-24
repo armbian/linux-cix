@@ -14,8 +14,9 @@
 #include <linux/regmap.h>
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_client_setup.h>
 #include <drm/drm_drv.h>
-#include <drm/drm_fb_helper.h>
+#include <drm/drm_fbdev_dma.h>
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_module.h>
@@ -441,6 +442,7 @@ static const struct drm_driver kmb_driver = {
 	/* GEM Operations */
 	.fops = &fops,
 	DRM_GEM_DMA_DRIVER_OPS_VMAP,
+	DRM_FBDEV_DMA_DRIVER_OPS,
 	.name = "kmb-drm",
 	.desc = "KEEMBAY DISPLAY DRIVER",
 	.date = DRIVER_DATE,
@@ -448,7 +450,7 @@ static const struct drm_driver kmb_driver = {
 	.minor = DRIVER_MINOR,
 };
 
-static int kmb_remove(struct platform_device *pdev)
+static void kmb_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct drm_device *drm = dev_get_drvdata(dev);
@@ -473,7 +475,6 @@ static int kmb_remove(struct platform_device *pdev)
 	/* Unregister DSI host */
 	kmb_dsi_host_unregister(kmb->kmb_dsi);
 	drm_atomic_helper_shutdown(drm);
-	return 0;
 }
 
 static int kmb_probe(struct platform_device *pdev)
@@ -562,7 +563,7 @@ static int kmb_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_register;
 
-	drm_fbdev_generic_setup(&kmb->drm, 0);
+	drm_client_setup(&kmb->drm, NULL);
 
 	return 0;
 

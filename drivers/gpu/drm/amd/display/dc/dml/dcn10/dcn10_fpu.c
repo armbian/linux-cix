@@ -143,7 +143,6 @@ void dcn10_resource_construct_fp(struct dc *dc)
 		dc->dcn_soc->fabric_and_dram_bandwidth_vmax0p9 = 41.60f;
 	}
 
-
 	dc->dcn_soc->number_of_channels = dc->ctx->asic_id.vram_width / ddr4_dram_width;
 	ASSERT(dc->dcn_soc->number_of_channels < 3);
 	if (dc->dcn_soc->number_of_channels == 0)/*old sbios bug*/

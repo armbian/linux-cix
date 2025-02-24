@@ -12,7 +12,9 @@
 #include "gen6_ppgtt.h"
 #include "gen7_renderclear.h"
 #include "i915_drv.h"
+#include "i915_irq.h"
 #include "i915_mitigations.h"
+#include "i915_reg.h"
 #include "intel_breadcrumbs.h"
 #include "intel_context.h"
 #include "intel_engine_regs.h"
@@ -190,6 +192,7 @@ static bool stop_ring(struct intel_engine_cs *engine)
 static int xcs_resume(struct intel_engine_cs *engine)
 {
 	struct intel_ring *ring = engine->legacy.ring;
+	ktime_t kt;
 
 	ENGINE_TRACE(engine, "ring:{HEAD:%04x, TAIL:%04x}\n",
 		     ring->head, ring->tail);
@@ -228,9 +231,27 @@ static int xcs_resume(struct intel_engine_cs *engine)
 	set_pp_dir(engine);
 
 	/* First wake the ring up to an empty/idle ring */
-	ENGINE_WRITE_FW(engine, RING_HEAD, ring->head);
+	for ((kt) = ktime_get() + (2 * NSEC_PER_MSEC);
+			ktime_before(ktime_get(), (kt)); cpu_relax()) {
+		/*
+		 * In case of resets fails because engine resumes from
+		 * incorrect RING_HEAD and then GPU may be then fed
+		 * to invalid instrcutions, which may lead to unrecoverable
+		 * hang. So at first write doesn't succeed then try again.
+		 */
+		ENGINE_WRITE_FW(engine, RING_HEAD, ring->head);
+		if (ENGINE_READ_FW(engine, RING_HEAD) == ring->head)
+			break;
+	}
+
 	ENGINE_WRITE_FW(engine, RING_TAIL, ring->head);
-	ENGINE_POSTING_READ(engine, RING_TAIL);
+	if (ENGINE_READ_FW(engine, RING_HEAD) != ENGINE_READ_FW(engine, RING_TAIL)) {
+		ENGINE_TRACE(engine, "failed to reset empty ring: [%x, %x]: %x\n",
+			     ENGINE_READ_FW(engine, RING_HEAD),
+			     ENGINE_READ_FW(engine, RING_TAIL),
+			     ring->head);
+		goto err;
+	}
 
 	ENGINE_WRITE_FW(engine, RING_CTL,
 			RING_CTL_SIZE(ring->size) | RING_VALID);
@@ -239,12 +260,16 @@ static int xcs_resume(struct intel_engine_cs *engine)
 	if (__intel_wait_for_register_fw(engine->uncore,
 					 RING_CTL(engine->mmio_base),
 					 RING_VALID, RING_VALID,
-					 5000, 0, NULL))
+					 5000, 0, NULL)) {
+		ENGINE_TRACE(engine, "failed to restart\n");
 		goto err;
+	}
 
-	if (GRAPHICS_VER(engine->i915) > 2)
+	if (GRAPHICS_VER(engine->i915) > 2) {
 		ENGINE_WRITE_FW(engine,
 				RING_MI_MODE, _MASKED_BIT_DISABLE(STOP_RING));
+		ENGINE_POSTING_READ(engine, RING_MI_MODE);
+	}
 
 	/* Now awake, let it get started */
 	if (ring->tail != ring->head) {
@@ -472,8 +497,7 @@ static int ring_context_init_default_state(struct intel_context *ce,
 	if (IS_ERR(vaddr))
 		return PTR_ERR(vaddr);
 
-	shmem_read(ce->engine->default_state, 0,
-		   vaddr, ce->engine->context_size);
+	shmem_read(ce->default_state, 0, vaddr, ce->engine->context_size);
 
 	i915_gem_object_flush_map(obj);
 	__i915_gem_object_release_map(obj);
@@ -489,7 +513,7 @@ static int ring_context_pre_pin(struct intel_context *ce,
 	struct i915_address_space *vm;
 	int err = 0;
 
-	if (ce->engine->default_state &&
+	if (ce->default_state &&
 	    !test_bit(CONTEXT_VALID_BIT, &ce->flags)) {
 		err = ring_context_init_default_state(ce, ww);
 		if (err)
@@ -567,6 +591,9 @@ err_obj:
 static int ring_context_alloc(struct intel_context *ce)
 {
 	struct intel_engine_cs *engine = ce->engine;
+
+	if (!intel_context_has_own_state(ce))
+		ce->default_state = engine->default_state;
 
 	/* One ringbuffer to rule them all */
 	GEM_BUG_ON(!engine->legacy.ring);
@@ -803,7 +830,7 @@ static int mi_set_context(struct i915_request *rq,
 static int remap_l3_slice(struct i915_request *rq, int slice)
 {
 #define L3LOG_DW (GEN7_L3LOG_SIZE / sizeof(u32))
-	u32 *cs, *remap_info = rq->engine->i915->l3_parity.remap_info[slice];
+	u32 *cs, *remap_info = rq->i915->l3_parity.remap_info[slice];
 	int i;
 
 	if (!remap_info)
@@ -895,7 +922,7 @@ static int clear_residuals(struct i915_request *rq)
 	}
 
 	ret = engine->emit_bb_start(rq,
-				    engine->wa_ctx.vma->node.start, 0,
+				    i915_vma_offset(engine->wa_ctx.vma), 0,
 				    0);
 	if (ret)
 		return ret;
@@ -1050,9 +1077,9 @@ static void gen6_bsd_set_default_submission(struct intel_engine_cs *engine)
 
 static void ring_release(struct intel_engine_cs *engine)
 {
-	struct drm_i915_private *dev_priv = engine->i915;
+	struct drm_i915_private *i915 = engine->i915;
 
-	drm_WARN_ON(&dev_priv->drm, GRAPHICS_VER(dev_priv) > 2 &&
+	drm_WARN_ON(&i915->drm, GRAPHICS_VER(i915) > 2 &&
 		    (ENGINE_READ(engine, RING_MI_MODE) & MODE_IDLE) == 0);
 
 	intel_engine_cleanup_common(engine);
@@ -1086,9 +1113,6 @@ static void setup_irq(struct intel_engine_cs *engine)
 	} else if (GRAPHICS_VER(i915) >= 5) {
 		engine->irq_enable = gen5_irq_enable;
 		engine->irq_disable = gen5_irq_disable;
-	} else if (GRAPHICS_VER(i915) >= 3) {
-		engine->irq_enable = gen3_irq_enable;
-		engine->irq_disable = gen3_irq_disable;
 	} else {
 		engine->irq_enable = gen2_irq_enable;
 		engine->irq_disable = gen2_irq_disable;
@@ -1142,7 +1166,7 @@ static void setup_common(struct intel_engine_cs *engine)
 	 * equivalent to our next initial bread so we can elide
 	 * engine->emit_init_breadcrumb().
 	 */
-	engine->emit_fini_breadcrumb = gen3_emit_breadcrumb;
+	engine->emit_fini_breadcrumb = gen2_emit_breadcrumb;
 	if (GRAPHICS_VER(i915) == 5)
 		engine->emit_fini_breadcrumb = gen5_emit_breadcrumb;
 
@@ -1155,7 +1179,7 @@ static void setup_common(struct intel_engine_cs *engine)
 	else if (IS_I830(i915) || IS_I845G(i915))
 		engine->emit_bb_start = i830_emit_bb_start;
 	else
-		engine->emit_bb_start = gen3_emit_bb_start;
+		engine->emit_bb_start = gen2_emit_bb_start;
 }
 
 static void setup_rcs(struct intel_engine_cs *engine)

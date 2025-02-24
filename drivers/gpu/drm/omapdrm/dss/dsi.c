@@ -5044,7 +5044,7 @@ err_pm_disable:
 	return r;
 }
 
-static int dsi_remove(struct platform_device *pdev)
+static void dsi_remove(struct platform_device *pdev)
 {
 	struct dsi_data *dsi = platform_get_drvdata(pdev);
 
@@ -5060,8 +5060,6 @@ static int dsi_remove(struct platform_device *pdev)
 		regulator_disable(dsi->vdds_dsi_reg);
 		dsi->vdds_dsi_enabled = false;
 	}
-
-	return 0;
 }
 
 static __maybe_unused int dsi_runtime_suspend(struct device *dev)

@@ -69,7 +69,9 @@ static void sun4i_backend_disable_color_correction(struct sunxi_engine *engine)
 			   SUN4I_BACKEND_OCCTL_ENABLE, 0);
 }
 
-static void sun4i_backend_commit(struct sunxi_engine *engine)
+static void sun4i_backend_commit(struct sunxi_engine *engine,
+				 struct drm_crtc *crtc,
+				 struct drm_atomic_state *state)
 {
 	DRM_DEBUG_DRIVER("Committing changes\n");
 
@@ -792,7 +794,7 @@ static int sun4i_backend_bind(struct device *dev, struct device *master,
 	dev_set_drvdata(dev, backend);
 	spin_lock_init(&backend->frontend_lock);
 
-	if (of_find_property(dev->of_node, "interconnects", NULL)) {
+	if (of_property_present(dev->of_node, "interconnects")) {
 		/*
 		 * This assume we have the same DMA constraints for all our the
 		 * devices in our pipeline (all the backends, but also the
@@ -965,11 +967,9 @@ static int sun4i_backend_probe(struct platform_device *pdev)
 	return component_add(&pdev->dev, &sun4i_backend_ops);
 }
 
-static int sun4i_backend_remove(struct platform_device *pdev)
+static void sun4i_backend_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &sun4i_backend_ops);
-
-	return 0;
 }
 
 static const struct sun4i_backend_quirks sun4i_backend_quirks = {
