@@ -46,6 +46,71 @@ static int panthor_clk_init(struct panthor_device *ptdev)
 	return 0;
 }
 
+static void panthor_pm_domain_fini(struct panthor_device *ptdev)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ptdev->pm_domain_devs); i++) {
+		if (!ptdev->pm_domain_devs[i])
+			break;
+
+		if (ptdev->pm_domain_links[i])
+			device_link_del(ptdev->pm_domain_links[i]);
+
+		dev_pm_domain_detach(ptdev->pm_domain_devs[i], true);
+	}
+}
+
+static int panthor_pm_domain_init(struct panthor_device *ptdev)
+{
+	int err;
+	int i, num_domains;
+
+	num_domains = of_count_phandle_with_args(ptdev->base.dev->of_node,
+						 "power-domains",
+						 "#power-domain-cells");
+
+	/*
+	 * Single domain is handled by the core, and, if only a single power
+	 * the power domain is requested, the property is optional.
+	 */
+	if (num_domains < 2)
+		return 0;
+
+	if (WARN(num_domains > ARRAY_SIZE(ptdev->pm_domain_devs),
+			"Too many supplies in compatible structure.\n"))
+		return -EINVAL;
+
+	for (i = 0; i < num_domains; i++) {
+		ptdev->pm_domain_devs[i] =
+			dev_pm_domain_attach_by_id(ptdev->base.dev, i);
+		if (IS_ERR_OR_NULL(ptdev->pm_domain_devs[i])) {
+			err = PTR_ERR(ptdev->pm_domain_devs[i]) ? : -ENODATA;
+			ptdev->pm_domain_devs[i] = NULL;
+			dev_err(ptdev->base.dev,
+				"failed to get pm-domain %d: %d\n",
+				i, err);
+			goto err;
+		}
+
+		ptdev->pm_domain_links[i] = device_link_add(ptdev->base.dev,
+				ptdev->pm_domain_devs[i], DL_FLAG_PM_RUNTIME |
+				DL_FLAG_STATELESS | DL_FLAG_RPM_ACTIVE);
+		if (!ptdev->pm_domain_links[i]) {
+			dev_err(ptdev->pm_domain_devs[i],
+				"adding device link failed!\n");
+			err = -ENODEV;
+			goto err;
+		}
+	}
+
+	return 0;
+
+err:
+	panthor_pm_domain_fini(ptdev);
+	return err;
+}
+
 void panthor_device_unplug(struct panthor_device *ptdev)
 {
 	/* This function can be called from two different path: the reset work
@@ -90,6 +155,8 @@ void panthor_device_unplug(struct panthor_device *ptdev)
 	/* If PM is disabled, we need to call the suspend handler manually. */
 	if (!IS_ENABLED(CONFIG_PM))
 		panthor_device_suspend(ptdev->base.dev);
+
+	panthor_pm_domain_fini(ptdev);
 
 	/* Report the unplug operation as done to unblock concurrent
 	 * panthor_device_unplug() callers.
@@ -204,26 +271,32 @@ int panthor_device_init(struct panthor_device *ptdev)
 	if (ret)
 		return ret;
 
+	ret = panthor_pm_domain_init(ptdev);
+	if (ret)
+		return ret;
+
 	ptdev->iomem = devm_platform_get_and_ioremap_resource(to_platform_device(ptdev->base.dev),
 							      0, &res);
-	if (IS_ERR(ptdev->iomem))
-		return PTR_ERR(ptdev->iomem);
+	if (IS_ERR(ptdev->iomem)) {
+		ret = PTR_ERR(ptdev->iomem);
+		goto err_release_pm_domains;
+	}
 
 	ptdev->phys_addr = res->start;
 
 	ret = devm_pm_runtime_enable(ptdev->base.dev);
 	if (ret)
-		return ret;
+		goto err_release_pm_domains;
 
 	ret = pm_runtime_resume_and_get(ptdev->base.dev);
 	if (ret)
-		return ret;
+		goto err_release_pm_domains;
 
 	/* If PM is disabled, we need to call panthor_device_resume() manually. */
 	if (!IS_ENABLED(CONFIG_PM)) {
 		ret = panthor_device_resume(ptdev->base.dev);
 		if (ret)
-			return ret;
+			goto err_release_pm_domains;
 	}
 
 	ret = panthor_gpu_init(ptdev);
@@ -268,6 +341,9 @@ err_unplug_gpu:
 
 err_rpm_put:
 	pm_runtime_put_sync_suspend(ptdev->base.dev);
+
+err_release_pm_domains:
+	panthor_pm_domain_fini(ptdev);
 	return ret;
 }
 

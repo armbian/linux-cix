@@ -110,6 +110,13 @@ struct panthor_device {
 		struct clk *coregroup;
 	} clks;
 
+	/* pm_domains for devices with more than one. */
+	/** @pm_domain_devs: PM domain device instances for devices with more than one PM domain. */
+	struct device *pm_domain_devs[2];
+
+	/** @pm_domain_links: PM domain device links for devices with more than one PM domain. */
+	struct device_link *pm_domain_links[2];
+
 	/** @coherent: True if the CPU/GPU are memory coherent. */
 	bool coherent;
 
