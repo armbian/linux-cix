@@ -13,6 +13,7 @@ config DRM_LINLONDP
 	depends on DRM && OF
 	depends on COMMON_CLK
 	depends on DRM_CIX
+	select DRM_CLIENT_SELECTION
 	select DRM_KMS_HELPER
 	select DRM_GEM_DMA_HELPER
 	select VIDEOMODE_HELPERS

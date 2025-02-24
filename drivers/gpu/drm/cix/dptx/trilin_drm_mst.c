@@ -409,7 +409,7 @@ enum drm_mode_status trilin_dp_mst_mode_valid(struct drm_connector *connector,
 	const int min_bpp = 8 * 3;
 	struct trilin_connector *conn = connector_to_trilin(connector);
 	struct trilin_dp *dp = conn->dp;
-	const int PBN = drm_dp_calc_pbn_mode(mode->clock, min_bpp, false);
+	const int PBN = drm_dp_calc_pbn_mode(mode->clock, min_bpp);
 	enum drm_mode_status ret = trilin_dp_connector_mode_valid(connector, mode);
 	//DP_MST_DEBUG("enter\n");
 	if (ret != MODE_OK)
@@ -628,7 +628,7 @@ static void _dp_mst_encoders_pre_enable_part2(struct trilin_encoder *mst_encoder
 
 	mst_state = to_drm_dp_mst_topology_state(mgr->base.state);
 	payload = drm_atomic_get_mst_payload_state(mst_state, port);
-	drm_dp_add_payload_part2(mgr, state, payload);
+	drm_dp_add_payload_part2(mgr, payload);
 	DP_MST_DEBUG("mst encoder [%d] _pre enable part-2 complete [state=%p]\n", mst_encoder->id, state);
 }
 
@@ -639,8 +639,8 @@ static void _dp_mst_encoders_pre_disable(struct trilin_encoder *mst_encoder)
 	struct trilin_dp_mst_private *mst = &dp->mst.private_info;
 	struct drm_dp_mst_topology_mgr *mgr = dp->mst_mgr;
 	struct drm_atomic_state *state = conn->state;
-	struct drm_dp_mst_topology_state *old_mst_state, *new_mst_state, *mst_state;
-	struct drm_dp_mst_atomic_payload *old_payload, *new_payload;
+	struct drm_dp_mst_topology_state *new_mst_state, *mst_state;
+	struct drm_dp_mst_atomic_payload *new_payload;
 
 	DP_MST_DEBUG("enter\n");
 	if (state == NULL) {
@@ -649,20 +649,18 @@ static void _dp_mst_encoders_pre_disable(struct trilin_encoder *mst_encoder)
 	}
 
 	mst_state = drm_atomic_get_new_mst_topology_state(state, mgr);
-	old_mst_state = drm_atomic_get_old_mst_topology_state(state, mgr);
 	new_mst_state = drm_atomic_get_new_mst_topology_state(state, mgr);
 
-	DP_MST_DEBUG("state=%p old_mst_state=%p new_mst_state=%p mst_state=%p\n"
-		, state, old_mst_state, new_mst_state, mst_state);
+	DP_MST_DEBUG("state=%p new_mst_state=%p mst_state=%p\n"
+		, state, new_mst_state, mst_state);
 
-	if (old_mst_state == NULL || new_mst_state == NULL) {
+	if (new_mst_state == NULL) {
 		return;
 	}
 
-	old_payload = drm_atomic_get_mst_payload_state(old_mst_state, conn->port);
 	new_payload = drm_atomic_get_mst_payload_state(new_mst_state, conn->port);
 
-	drm_dp_remove_payload(mgr, new_mst_state, old_payload, new_payload);
+	drm_dp_remove_payload_part1(mgr, new_mst_state, new_payload);
 	trilin_dp_mst_update_timeslots(mst, new_mst_state, mst_encoder);
 
 	mst_encoder->vcpi = 0;
@@ -719,6 +717,8 @@ static void trilin_mst_encoder_disable(struct drm_encoder *encoder)
 	struct trilin_dp *dp = mst_encoder->dp;
 	struct trilin_connector *conn = mst_encoder->connector;
 	struct trilin_dp_mst_private *mst = &dp->mst.private_info;
+	struct drm_dp_mst_topology_state *old_mst_state, *new_mst_state;
+	struct drm_dp_mst_atomic_payload *old_payload, *new_payload;
 	int rc = 0;
 	DP_MST_DEBUG("enter\n");
 
@@ -739,6 +739,11 @@ static void trilin_mst_encoder_disable(struct drm_encoder *encoder)
 
 	drm_dp_check_act_status(dp->mst_mgr);
 
+	old_mst_state = drm_atomic_get_old_mst_topology_state(conn->state, dp->mst_mgr);
+	new_mst_state = drm_atomic_get_new_mst_topology_state(conn->state, dp->mst_mgr);
+	old_payload = drm_atomic_get_mst_payload_state(old_mst_state, conn->port);
+	new_payload = drm_atomic_get_mst_payload_state(new_mst_state, conn->port);
+	drm_dp_remove_payload_part2(dp->mst_mgr, new_mst_state, old_payload, new_payload);
 	drm_dp_send_power_updown_phy(dp->mst_mgr, conn->port, false);
 	mutex_unlock(&mst->mst_lock);
 
@@ -797,14 +802,12 @@ static int trilin_mst_encoder_atomic_check(struct drm_encoder *encoder,
 	if (IS_ERR(mst_state))
 		return PTR_ERR(mst_state);
 
-	if (!mst_state->pbn_div) {
-		mst_state->pbn_div = drm_dp_get_vc_payload_bw(mst_mgr, dp->mode.link_rate, dp->mode.lane_cnt);
-	}
+	mst_state->pbn_div = drm_dp_get_vc_payload_bw(mst_mgr, dp->mode.link_rate, dp->mode.lane_cnt);
 
 	/*Fixme: suspend & resume state->duplicated is 1*/
 	//if (!state->duplicated) {
 		clock = adjusted_mode->clock;
-		mst_encoder->pbn = drm_dp_calc_pbn_mode(clock, conn->config.bpp, false);
+		mst_encoder->pbn = drm_dp_calc_pbn_mode(clock, conn->config.bpp);
 	//}
 
 	mst_encoder->num_slots = drm_dp_atomic_find_time_slots(state, mst_mgr, mst_port, mst_encoder->pbn);

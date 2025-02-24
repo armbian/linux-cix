@@ -11,6 +11,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_helper.h>
+#include <drm/drm_fbdev_dma.h>
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_managed.h>
@@ -59,12 +60,11 @@ static irqreturn_t linlondp_kms_irq_handler(int irq, void *data)
 
 static const struct drm_driver linlondp_kms_driver = {
     .driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC | DRIVER_RENDER,
-    .lastclose            = drm_fb_helper_lastclose,
     DRM_GEM_DMA_DRIVER_OPS_WITH_DUMB_CREATE(linlondp_gem_dma_dumb_create),
+    DRM_FBDEV_DMA_DRIVER_OPS,
     .fops = &linlondp_cma_fops,
     .name = "linlondp",
     .desc = "Linlon Display Processor driver",
-    .date = "20230426",
     .major = 0,
     .minor = 0,
 };

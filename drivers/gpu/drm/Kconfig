@@ -527,6 +527,8 @@ config DRM_HYPERV
 
 	 If M is selected the module will be called hyperv_drm.
 
+source "drivers/gpu/drm/cix/Kconfig"
+
 config DRM_EXPORT_FOR_TESTS
 	bool
 

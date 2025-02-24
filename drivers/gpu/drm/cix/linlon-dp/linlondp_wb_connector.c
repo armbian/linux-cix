@@ -4,6 +4,7 @@
  * ALL RIGHTS RESERVED
  *
  */
+#include <linux/debugfs.h>
 #include <drm/drm_framebuffer.h>
 #include "linlondp_dev.h"
 #include "linlondp_kms.h"

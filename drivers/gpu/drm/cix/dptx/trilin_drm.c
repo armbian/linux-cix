@@ -27,6 +27,7 @@
 #include <drm/drm_simple_kms_helper.h>
 
 #include <linux/clk.h>
+#include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/module.h>
@@ -682,7 +683,7 @@ static const struct drm_encoder_helper_funcs trilin_dp_encoder_helper_funcs = {
 /*add HDR metata property*/
 static void trilin_dp_add_properties(struct trilin_dp *dp, struct drm_connector* connector)
 {
-	if (!drm_mode_create_dp_colorspace_property(connector))
+	if (!drm_mode_create_dp_colorspace_property(connector, 0))
 		drm_connector_attach_colorspace_property(connector);
 	drm_connector_attach_hdr_output_metadata_property(connector);
 

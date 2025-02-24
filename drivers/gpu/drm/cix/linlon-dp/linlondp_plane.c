@@ -4,6 +4,7 @@
  * ALL RIGHTS RESERVED
  *
  */
+#include <linux/debugfs.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_blend.h>
