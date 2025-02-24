@@ -48,7 +48,7 @@
  * subset of the MIPI DCS command set.
  */
 
-static int mipi_dsi_device_match(struct device *dev, const struct device_driver *drv)
+static int mipi_dsi_device_match(struct device *dev, struct device_driver *drv)
 {
 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(dev);
 
@@ -63,7 +63,7 @@ static int mipi_dsi_device_match(struct device *dev, const struct device_driver 
 	return 0;
 }
 
-static int mipi_dsi_uevent(const struct device *dev, struct kobj_uevent_env *env)
+static int mipi_dsi_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	const struct mipi_dsi_device *dsi = to_mipi_dsi_device(dev);
 	int err;
@@ -112,6 +112,7 @@ struct mipi_dsi_device *of_find_mipi_dsi_device_by_node(struct device_node *np)
 
 	return dev ? to_mipi_dsi_device(dev) : NULL;
 }
+
 EXPORT_SYMBOL(of_find_mipi_dsi_device_by_node);
 
 static void mipi_dsi_dev_release(struct device *dev)

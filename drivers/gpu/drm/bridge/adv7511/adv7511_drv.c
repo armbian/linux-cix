@@ -122,7 +122,7 @@ static const struct regmap_config adv7511_regmap_config = {
 	.val_bits = 8,
 
 	.max_register = 0xff,
-	.cache_type = REGCACHE_MAPLE,
+	.cache_type = REGCACHE_RBTREE,
 	.reg_defaults_raw = adv7511_register_defaults,
 	.num_reg_defaults_raw = ARRAY_SIZE(adv7511_register_defaults),
 
@@ -1086,7 +1086,7 @@ static const struct regmap_config adv7511_cec_regmap_config = {
 	.val_bits = 8,
 
 	.max_register = 0xff,
-	.cache_type = REGCACHE_MAPLE,
+	.cache_type = REGCACHE_RBTREE,
 	.volatile_reg = adv7511_cec_register_volatile,
 };
 
@@ -1206,7 +1206,7 @@ static int adv7511_parse_dt(struct device_node *np,
 	return 0;
 }
 
-static int adv7511_probe(struct i2c_client *i2c)
+static int adv7511_probe(struct i2c_client *i2c, const struct i2c_device_id *)
 {
 	struct adv7511_link_config link_config;
 	struct adv7511 *adv7511;

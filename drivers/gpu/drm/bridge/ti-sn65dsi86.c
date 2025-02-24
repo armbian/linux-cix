@@ -21,7 +21,7 @@
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 
-#include <linux/unaligned.h>
+#include <asm/unaligned.h>
 
 #include <drm/display/drm_dp_aux_bus.h>
 #include <drm/display/drm_dp_helper.h>
@@ -1889,7 +1889,7 @@ static int ti_sn65dsi86_parse_regulators(struct ti_sn65dsi86 *pdata)
 				       pdata->supplies);
 }
 
-static int ti_sn65dsi86_probe(struct i2c_client *client)
+static int ti_sn65dsi86_probe(struct i2c_client *client, const struct i2c_device_id *)
 {
 	struct device *dev = &client->dev;
 	struct ti_sn65dsi86 *pdata;

@@ -388,7 +388,7 @@ static const struct drm_encoder_slave_funcs ch7006_encoder_funcs = {
 
 /* I2C driver functions */
 
-static int ch7006_probe(struct i2c_client *client)
+static int ch7006_probe(struct i2c_client *client, const struct i2c_device_id *)
 {
 	uint8_t addr = CH7006_VERSION_ID;
 	uint8_t val;
