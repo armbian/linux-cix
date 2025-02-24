@@ -1,0 +1,53 @@
+#!/bin/sh
+
+if [ $# -ne 1 ]; then
+	echo "usage: $0 <path-to-linux-checkout>"
+	exit 1
+fi
+
+echo "DO NOT CONTINUE UNLESS YOU KNOW WHAT THIS SCRIPT DOES"
+read -p "Continue? [y/N] " yn
+if [ "$yn" != "y" ]; then
+	exit 1
+fi
+
+lnxdir="$1"
+
+keepdir="drm-transplant.$$"
+
+keeps="
+	drivers/gpu/drm/cix
+"
+
+replaces="
+	drivers/accel
+	drivers/gpu/drm
+	include/drm
+	include/linux/hdmi.h
+	include/uapi/drm
+"
+
+set -e
+
+mkdir -p "$keepdir"
+
+for keep in $keeps; do
+	mkdir -p "$keepdir/$(dirname "$keep")"
+	cp -a "$keep" "$keepdir/$keep"
+done
+
+for replace in $replaces; do
+	rm -rf "$replace"
+	cp -a "$lnxdir/$replace" "$replace"
+done
+
+for keep in $keeps; do
+	rm -rf "$keep"
+	cp -a "$keepdir/$keep" "$keep"
+done
+
+rm -rf "$keepdir"
+
+for replace in $replaces; do
+	git add "$replace"
+done
