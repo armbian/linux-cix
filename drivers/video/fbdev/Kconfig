@@ -161,6 +161,24 @@ config FB_DEFERRED_IO
 	bool
 	depends on FB
 
+config FB_IOMEM_FOPS
+	tristate
+	depends on FB_CORE
+
+config FB_IOMEM_HELPERS
+	bool
+	depends on FB_CORE
+	select FB_CFB_COPYAREA
+	select FB_CFB_FILLRECT
+	select FB_CFB_IMAGEBLIT
+	select FB_IOMEM_FOPS
+
+config FB_IOMEM_HELPERS_DEFERRED
+	bool
+	depends on FB_CORE
+	select FB_DEFERRED_IO
+	select FB_IOMEM_HELPERS
+
 config FB_HECUBA
 	tristate
 	depends on FB
