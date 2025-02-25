@@ -9,6 +9,7 @@
 #include <linux/atomic.h>
 #include <linux/io-pgtable.h>
 #include <linux/regulator/consumer.h>
+#include <linux/reset.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
 
@@ -110,12 +111,17 @@ struct panthor_device {
 		struct clk *coregroup;
 	} clks;
 
-	/* pm_domains for devices with more than one. */
 	/** @pm_domain_devs: PM domain device instances for devices with more than one PM domain. */
 	struct device *pm_domain_devs[2];
 
 	/** @pm_domain_links: PM domain device links for devices with more than one PM domain. */
 	struct device_link *pm_domain_links[2];
+
+	/** @reset_controls: Reset controls instances for devices needing reset at resume time. */
+	struct reset_control *reset_controls[2];
+
+	/** @num_reset_controls: Number of reset controls present */
+	u32 num_reset_controls;
 
 	/** @coherent: True if the CPU/GPU are memory coherent. */
 	bool coherent;

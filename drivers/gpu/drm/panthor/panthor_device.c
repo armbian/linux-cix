@@ -3,6 +3,7 @@
 /* Copyright 2019 Linaro, Ltd, Rob Herring <robh@kernel.org> */
 /* Copyright 2023 Collabora ltd. */
 
+#include <asm/delay.h>
 #include <linux/clk.h>
 #include <linux/mm.h>
 #include <linux/platform_device.h>
@@ -110,6 +111,29 @@ err:
 	panthor_pm_domain_fini(ptdev);
 	return err;
 }
+
+static int panthor_resets_init(struct panthor_device *ptdev)
+{
+	int i;
+
+	ptdev->num_reset_controls = of_count_phandle_with_args(ptdev->base.dev->of_node,
+							       "resets",
+							       "#reset-cells");
+
+	if (WARN(ptdev->num_reset_controls > ARRAY_SIZE(ptdev->reset_controls),
+		"Too many resets in compatible structure.\n"))
+		return -EINVAL;
+
+	for (i = 0; i < ptdev->num_reset_controls; ++i) {
+		ptdev->reset_controls[i] = devm_reset_control_get_exclusive_by_index(ptdev->base.dev, i);
+		if (IS_ERR(ptdev->reset_controls[i])) {
+			return PTR_ERR(ptdev->reset_controls[i]);
+		}
+	}
+
+	return 0;
+}
+
 
 void panthor_device_unplug(struct panthor_device *ptdev)
 {
@@ -274,6 +298,10 @@ int panthor_device_init(struct panthor_device *ptdev)
 	ret = panthor_pm_domain_init(ptdev);
 	if (ret)
 		return ret;
+
+	ret = panthor_resets_init(ptdev);
+	if (ret)
+		goto err_release_pm_domains;
 
 	ptdev->iomem = devm_platform_get_and_ioremap_resource(to_platform_device(ptdev->base.dev),
 							      0, &res);
@@ -494,7 +522,7 @@ int panthor_device_mmap_io(struct panthor_device *ptdev, struct vm_area_struct *
 int panthor_device_resume(struct device *dev)
 {
 	struct panthor_device *ptdev = dev_get_drvdata(dev);
-	int ret, cookie;
+	int ret, cookie, i;
 
 	if (atomic_read(&ptdev->pm.state) != PANTHOR_DEVICE_PM_STATE_SUSPENDED)
 		return -EINVAL;
@@ -512,6 +540,19 @@ int panthor_device_resume(struct device *dev)
 	ret = clk_prepare_enable(ptdev->clks.coregroup);
 	if (ret)
 		goto err_disable_stacks_clk;
+
+	/* In case we have reset controls, assert and deassert reset lines */
+	if (ptdev->num_reset_controls > 0) {
+		for (i = 0; i < ptdev->num_reset_controls; i++)
+			reset_control_assert(ptdev->reset_controls[i]);
+
+		udelay(10);
+
+		for (i = 0; i < ptdev->num_reset_controls; i++)
+			reset_control_deassert(ptdev->reset_controls[i]);
+
+		udelay(10);
+	}
 
 	ret = panthor_devfreq_resume(ptdev);
 	if (ret)
