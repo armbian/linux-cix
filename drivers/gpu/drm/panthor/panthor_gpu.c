@@ -377,6 +377,19 @@ int panthor_gpu_l2_power_on(struct panthor_device *ptdev)
 			      hweight64(ptdev->gpu_info.shader_present));
 	}
 
+	/* CIX SKY1 needs a special PHBA setup before L2 activation */
+	if (of_device_is_compatible(ptdev->base.dev->of_node, "cix,sky1-mali")) {
+		gpu_write(ptdev, GPU_SYSC_PBHA_OVERRIDE(3), 0x22000000);
+		gpu_write(ptdev, GPU_SYSC_ALLOC(0), 0x00230000);
+		gpu_write(ptdev, GPU_SYSC_ALLOC(1), 0x00000023);
+		gpu_write(ptdev, GPU_SYSC_ALLOC(2), 0x00000000);
+		gpu_write(ptdev, GPU_SYSC_ALLOC(3), 0x00000000);
+		gpu_write(ptdev, GPU_SYSC_ALLOC(4), 0x00523222);
+		gpu_write(ptdev, GPU_SYSC_ALLOC(5), 0x00523200);
+		gpu_write(ptdev, GPU_SYSC_ALLOC(6), 0x00000022);
+		gpu_write(ptdev, GPU_SYSC_ALLOC(7), 0x00000032);
+	}
+
 	return panthor_gpu_power_on(ptdev, L2, 1, 20000);
 }
 
