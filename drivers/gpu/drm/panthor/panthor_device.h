@@ -99,6 +99,9 @@ struct panthor_device {
 	/** @iomem: CPU mapping of the IOMEM region. */
 	void __iomem *iomem;
 
+	/** @iomem: CPU mapping of the RCSU region on SKY1 SoC. */
+	void __iomem *sky1_rcsu_reg;
+
 	/** @clks: GPU clocks. */
 	struct {
 		/** @core: Core clock. */

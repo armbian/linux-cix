@@ -325,6 +325,15 @@ int panthor_device_init(struct panthor_device *ptdev)
 		goto err_release_pm_domains;
 	}
 
+	if (of_device_is_compatible(ptdev->base.dev->of_node, "cix,sky1-mali")) {
+		ptdev->sky1_rcsu_reg = devm_platform_ioremap_resource(to_platform_device(ptdev->base.dev), 1);
+		if (IS_ERR(ptdev->sky1_rcsu_reg)) {
+			ret = PTR_ERR(ptdev->sky1_rcsu_reg);
+			goto err_release_pm_domains;
+		}
+	}
+
+
 	ptdev->phys_addr = res->start;
 
 	ret = devm_pm_runtime_enable(ptdev->base.dev);

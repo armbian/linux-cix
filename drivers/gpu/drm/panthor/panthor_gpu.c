@@ -82,6 +82,7 @@ static void panthor_gpu_init_info(struct panthor_device *ptdev)
 	const struct panthor_model *model;
 	u32 arch_major, product_major;
 	u32 major, minor, status;
+	u32 sky1_harvesting_reg_val, sky1_harvesting_core_mask;
 	unsigned int i;
 
 	ptdev->gpu_info.gpu_id = gpu_read(ptdev, GPU_ID);
@@ -135,6 +136,17 @@ static void panthor_gpu_init_info(struct panthor_device *ptdev)
 		 ptdev->gpu_info.mem_features,
 		 ptdev->gpu_info.mmu_features,
 		 ptdev->gpu_info.as_present);
+
+	/* On CIX SKY1 SoC some shader cores can be disabled via RCSU */
+	if (of_device_is_compatible(ptdev->base.dev->of_node, "cix,sky1-mali")) {
+		sky1_harvesting_reg_val = readl(ptdev->sky1_rcsu_reg + 0x304);
+		sky1_harvesting_core_mask = ~((sky1_harvesting_reg_val & 0xFFFFFF0) >> 4) & 0x550555;
+		ptdev->gpu_info.shader_present &= sky1_harvesting_core_mask;
+
+		drm_info(&ptdev->base,
+			"sky1_harvesting_reg_val=0x%0x sky1_harvesting_core_mask=0x%0x",
+			sky1_harvesting_reg_val, sky1_harvesting_core_mask);
+	}
 
 	drm_info(&ptdev->base,
 		 "shader_present=0x%0llx l2_present=0x%0llx tiler_present=0x%0llx",
