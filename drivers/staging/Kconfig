@@ -60,6 +60,8 @@ source "drivers/staging/gdm724x/Kconfig"
 
 source "drivers/staging/fbtft/Kconfig"
 
+source "drivers/staging/hungtask/Kconfig"
+
 source "drivers/staging/most/Kconfig"
 
 source "drivers/staging/ks7010/Kconfig"
@@ -78,5 +80,4 @@ source "drivers/staging/qlge/Kconfig"
 
 source "drivers/staging/vme_user/Kconfig"
 
-source "drivers/staging/hungtask/Kconfig"
 endif # STAGING
