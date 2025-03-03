@@ -2872,40 +2872,53 @@
 		};
 
 		gpu: gpu@15010000 {
-			compatible = "arm,mali-valhall";
-			reg = <0x0 0x15000000 0x0 0x10000>,
-				<0x0 0x15010000 0x0 0xFF0000>;
-			reg-names = "gpu_rcsu", "gpu";
-			interrupts = <GIC_SPI 237 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 238 IRQ_TYPE_LEVEL_HIGH>,
-					<GIC_SPI 239 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "JOB", "MMU", "GPU";
-			system-coherency = <0>;
-			physical-memory-group-manager = <&gpu_physical_memory_group_manager>;
-			protected-memory-allocator = <&gpu_protected_memory_allocator>;
-			power-domains = <&smc_devpd SKY1_PD_GPU>, <&scmi_dvfs 0>;
-			power-domain-names = "pd_gpu", "perf";
+			compatible = "cix,sky1-mali", "arm,mali-valhall-csf";
+			reg = <0x0 0x15010000 0x0 0xFF0000>,
+			      <0x0 0x15000000 0x0 0x10000>;
+			// XXX(Mary): likely not needed
+			reg-names = "gpu", "gpu_rcsu";
+			#cooling-cells = <2>;
 			clocks = <&scmi_clk CLK_TREE_GPU_CLK_CORE>, <&scmi_clk CLK_TREE_GPU_CLK_STACKS>,
-					<&scmi_clk CLK_TREE_GPU_CLK_200M>, <&scmi_clk CLK_TREE_GPU_CLK_400M>;
-			clock-names = "gpu_clk_core", "gpu_clk_stacks",
-						"gpu_clk_200M", "gpu_clk_400M";
-			resets = <&src SKY1_GPU_RCSU_RESET_N>,
-				 <&src SKY1_GPU_RESET_N>;
-			reset-names = "gpu_rcsu_reset", "gpu_reset";
-			#cooling-cells = <2>;  /* Requested by cooling device state */
-			dynamic-power-coefficient = <4687>; /* Requested by Energy Model (EM) */
-			power_model@0 {
-				/*Note: it was designed for the Juno platform, and may not be suitable for sky1.*/
-				compatible = "arm,mali-simple-power-model";
-				static-coefficient = <2427750>;
-				dynamic-coefficient = <4687>;
-				ts = <20000 2000 (-20) 2>;
-				thermal-zone = "thermal-zone-gpu";
-			};
-			pbha {
-				int_id_override = <2 0x23>, <4 0x23>, <16 0x22>, <17 0x32>,
-						  <18 0x52>, <21 0x32>, <22 0x52>, <24 0x22>, <28 0x32>;
-			};
+				 <&scmi_clk CLK_TREE_GPU_CLK_200M>, <&scmi_clk CLK_TREE_GPU_CLK_400M>;
+			clock-names = "core", "stacks",
+				      "gpu_clk_200M", "gpu_clk_400M";
+			dynamic-power-coefficient = <4687>;
+			interrupts = <GIC_SPI 237 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 238 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 239 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "job", "mmu", "gpu";
+
+			power-domains = <&smc_devpd SKY1_PD_GPU>, <&scmi_dvfs 0>;
+			// XXX(Mary): likely not needed
+			power-domain-names = "pd_gpu", "perf";
+
+			resets = <&src SKY1_GPU_RESET_N>;
+			// XXX(Mary): likely not needed
+			reset-names = "gpu_reset";
+
+			// XXX(Mary): TODO system coherency setup
+			//system-coherency = <0>;
+
+			// XXX(Mary): Handled in panthor directly
+			//pbha {
+			//	int_id_override = <2 0x23>, <4 0x23>, <16 0x22>, <17 0x32>,
+			//			  <18 0x52>, <21 0x32>, <22 0x52>, <24 0x22>, <28 0x32>;
+			//};
+
+			// XXX(Mary): probably not needed (use the default kbase implementation it seems)
+			//physical-memory-group-manager = <&gpu_physical_memory_group_manager>;
+			//protected-memory-allocator = <&gpu_protected_memory_allocator>;
+
+			// XXX(Mary): ????
+			//power_model@0 {
+			//	/*Note: it was designed for the Juno platform, and may not be suitable for sky1.*/
+			//	compatible = "arm,mali-simple-power-model";
+			//	static-coefficient = <2427750>;
+			//	dynamic-coefficient = <4687>;
+			//	ts = <20000 2000 (-20) 2>;
+			//	thermal-zone = "thermal-zone-gpu";
+			//};
+
 		};
 
 		hwclock: hwspinlock@06510000 {
