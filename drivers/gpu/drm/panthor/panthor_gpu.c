@@ -388,6 +388,13 @@ int panthor_gpu_l2_power_on(struct panthor_device *ptdev)
 		gpu_write(ptdev, GPU_SYSC_ALLOC(5), 0x00523200);
 		gpu_write(ptdev, GPU_SYSC_ALLOC(6), 0x00000022);
 		gpu_write(ptdev, GPU_SYSC_ALLOC(7), 0x00000032);
+
+		/* This appears to be required to get LS_MEM_* related counters working */
+		gpu_write(ptdev, 0x306C, 0xFFFFFFFF);
+		gpu_write(ptdev, 0x3070, 0xFFFFFFFF);
+		gpu_write(ptdev, 0x307C, 0xFFFFFFFF);
+		gpu_write(ptdev, 0x3074, 0xFFFFFFFF);
+		gpu_write(ptdev, 0x3068, 0x1);
 	}
 
 	return panthor_gpu_power_on(ptdev, L2, 1, 20000);
