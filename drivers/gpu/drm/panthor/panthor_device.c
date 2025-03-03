@@ -554,6 +554,11 @@ int panthor_device_resume(struct device *dev)
 		udelay(10);
 	}
 
+	/* CIX SKY1 have custom devfreq, let's force max for now (XXX: devfreq) */
+	if (of_device_is_compatible(ptdev->base.dev->of_node, "cix,sky1-mali")) {
+		dev_pm_genpd_set_performance_state(ptdev->pm_domain_devs[1], 1000);
+	}
+
 	ret = panthor_devfreq_resume(ptdev);
 	if (ret)
 		goto err_disable_coregroup_clk;
