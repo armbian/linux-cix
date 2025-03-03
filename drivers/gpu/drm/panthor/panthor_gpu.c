@@ -459,6 +459,12 @@ int panthor_gpu_soft_reset(struct panthor_device *ptdev)
 			 ptdev->gpu->pending_reqs & GPU_IRQ_RESET_COMPLETED)) {
 		ptdev->gpu->pending_reqs |= GPU_IRQ_RESET_COMPLETED;
 		gpu_write(ptdev, GPU_INT_CLEAR, GPU_IRQ_RESET_COMPLETED);
+
+		if (of_device_is_compatible(ptdev->base.dev->of_node, "cix,sky1-mali")) {
+			gpu_write(ptdev, GPU_PWR_KEY, GPU_PWR_KEY_UNLOCK);
+			gpu_write(ptdev, GPU_PWR_OVERRIDE1, 0xFFFFFF);
+		}
+
 		gpu_write(ptdev, GPU_CMD, GPU_SOFT_RESET);
 	}
 	spin_unlock_irqrestore(&ptdev->gpu->reqs_lock, flags);
