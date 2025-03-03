@@ -109,6 +109,9 @@ struct panthor_device {
 
 		/** @coregroup: Core group clock. This clock is optional. */
 		struct clk *coregroup;
+
+		/** @backup: Backup clocks. Those clocks are optional. */
+		struct clk *backup[2];
 	} clks;
 
 	/** @pm_domain_devs: PM domain device instances for devices with more than one PM domain. */

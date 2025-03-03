@@ -43,6 +43,21 @@ static int panthor_clk_init(struct panthor_device *ptdev)
 				     PTR_ERR(ptdev->clks.coregroup),
 				     "get 'coregroup' clock failed");
 
+	/* CIX SKY1 needs additional backup clocks */
+	if (of_device_is_compatible(ptdev->base.dev->of_node, "cix,sky1-mali")) {
+		ptdev->clks.backup[0] = devm_clk_get_optional(ptdev->base.dev, "gpu_clk_200M");
+		if (IS_ERR(ptdev->clks.backup[0]))
+			return dev_err_probe(ptdev->base.dev,
+					     PTR_ERR(ptdev->clks.backup[0]),
+					     "get 'gpu_clk_200M' clock failed");
+
+		ptdev->clks.backup[1] = devm_clk_get_optional(ptdev->base.dev, "gpu_clk_400M");
+		if (IS_ERR(ptdev->clks.backup[1]))
+			return dev_err_probe(ptdev->base.dev,
+					     PTR_ERR(ptdev->clks.backup[1]),
+					     "get 'gpu_clk_400M' clock failed");
+	}
+
 	drm_info(&ptdev->base, "clock rate = %lu\n", clk_get_rate(ptdev->clks.core));
 	return 0;
 }
@@ -541,6 +556,12 @@ int panthor_device_resume(struct device *dev)
 	if (ret)
 		goto err_disable_stacks_clk;
 
+	for (i = 0; i < ARRAY_SIZE(ptdev->clks.backup); i++) {
+		ret = clk_prepare_enable(ptdev->clks.backup[i]);
+		if (ret)
+			goto err_disable_backup_clks;
+	}
+
 	/* In case we have reset controls, assert and deassert reset lines */
 	if (ptdev->num_reset_controls > 0) {
 		for (i = 0; i < ptdev->num_reset_controls; i++)
@@ -599,6 +620,10 @@ int panthor_device_resume(struct device *dev)
 err_suspend_devfreq:
 	panthor_devfreq_suspend(ptdev);
 
+err_disable_backup_clks:
+	for (i = 0; i < ARRAY_SIZE(ptdev->clks.backup); i++)
+		clk_disable_unprepare(ptdev->clks.backup[i]);
+
 err_disable_coregroup_clk:
 	clk_disable_unprepare(ptdev->clks.coregroup);
 
@@ -616,7 +641,7 @@ err_set_suspended:
 int panthor_device_suspend(struct device *dev)
 {
 	struct panthor_device *ptdev = dev_get_drvdata(dev);
-	int ret, cookie;
+	int ret, cookie, i;
 
 	if (atomic_read(&ptdev->pm.state) != PANTHOR_DEVICE_PM_STATE_ACTIVE)
 		return -EINVAL;
@@ -660,6 +685,10 @@ int panthor_device_suspend(struct device *dev)
 		}
 
 		goto err_set_active;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(ptdev->clks.backup); i++) {
+		clk_disable_unprepare(ptdev->clks.backup[i]);
 	}
 
 	clk_disable_unprepare(ptdev->clks.coregroup);
