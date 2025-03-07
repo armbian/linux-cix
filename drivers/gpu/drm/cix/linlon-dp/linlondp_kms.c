@@ -59,7 +59,7 @@ static irqreturn_t linlondp_kms_irq_handler(int irq, void *data)
 }
 
 static const struct drm_driver linlondp_kms_driver = {
-    .driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC | DRIVER_RENDER,
+    .driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
     DRM_GEM_DMA_DRIVER_OPS_WITH_DUMB_CREATE(linlondp_gem_dma_dumb_create),
     DRM_FBDEV_DMA_DRIVER_OPS,
     .fops = &linlondp_cma_fops,
