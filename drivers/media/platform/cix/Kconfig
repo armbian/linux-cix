@@ -1,2 +1,4 @@
 # SPDX-License-Identifier: GPL-2.0-only
 source "drivers/media/platform/cix/linlon-aeu/Kconfig"
+
+source "drivers/media/platform/cix/cix_vpu/Kconfig"
