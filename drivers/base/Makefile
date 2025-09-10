@@ -28,6 +28,7 @@ obj-$(CONFIG_GENERIC_ARCH_NUMA) += arch_numa.o
 obj-$(CONFIG_ACPI) += physical_location.o
 
 obj-y			+= test/
+obj-y			+= arm/
 
 ccflags-$(CONFIG_DEBUG_DRIVER) := -DDEBUG
 
