@@ -132,10 +132,6 @@ static struct mvx_session_format_map mvx_compressed_fmts[] = {
       .description =    "AV1" },
     { .format =         MVX_FORMAT_JPEG,
       .flags =          V4L2_FMT_FLAG_COMPRESSED,
-      .pixelformat =    V4L2_PIX_FMT_JPEG,
-      .description =    "JPEG" },
-    { .format =         MVX_FORMAT_JPEG,
-      .flags =          V4L2_FMT_FLAG_COMPRESSED,
       .pixelformat =    V4L2_PIX_FMT_MJPEG,
       .description =    "MJPEG" }
 };

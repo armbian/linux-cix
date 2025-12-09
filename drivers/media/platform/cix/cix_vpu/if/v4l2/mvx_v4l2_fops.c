@@ -182,10 +182,14 @@ unsigned int mvx_v4l2_poll(struct file *file,
         revents |= EPOLLPRI;
 
     /* POLLPRI events are handled by Vb2 */
-    if (vb2_is_streaming(&vsession->port[MVX_DIR_INPUT].vb2_queue) &&
-        (events & EPOLLOUT))
-        revents |= vb2_poll(&vsession->port[MVX_DIR_INPUT].vb2_queue,
+    if (vb2_is_streaming(&vsession->port[MVX_DIR_INPUT].vb2_queue))
+    {
+        unsigned int input_revents = vb2_poll(&vsession->port[MVX_DIR_INPUT].vb2_queue,
                     file, wait);
+        if (events & EPOLLOUT)
+            revents |= input_revents;
+    }
+
     if (vb2_is_streaming(&vsession->port[MVX_DIR_OUTPUT].vb2_queue) &&
         (events & (EPOLLIN | EPOLLPRI)))
         revents |= vb2_poll(&vsession->port[MVX_DIR_OUTPUT].vb2_queue,
