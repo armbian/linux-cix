@@ -68,6 +68,7 @@ obj-$(CONFIG_TMR_INJECT)	+= xilinx_tmr_inject.o
 obj-$(CONFIG_TPS6594_ESM)	+= tps6594-esm.o
 obj-$(CONFIG_TPS6594_PFSM)	+= tps6594-pfsm.o
 obj-$(CONFIG_CIX_SENSORHUB)		+= cix/sensor/core/
+obj-$(CONFIG_ARMCHINA_NPU)		+= cix/armchina-npu/
 obj-$(CONFIG_CIX_KERNEL_SENSORHUB)	+= cix/sensor/cix_sensorhub/
 obj-$(CONFIG_CIX_HF_TEST_CASE) += cix/sensor/test/
 obj-$(CONFIG_CIX_SF_SCP_SUPPORT) += cix/sensor/scp/
