@@ -26,6 +26,8 @@
 #include "cix_sky1_soc.h"
 #endif
 
+#define KMD_VERSION "5.7.0"
+
 static struct aipu_priv *aipu;
 
 static int aipu_open(struct inode *inode, struct file *filp)
