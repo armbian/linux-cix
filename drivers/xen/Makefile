@@ -4,6 +4,7 @@ obj-y	+= grant-table.o features.o balloon.o manage.o time.o
 obj-y	+= mem-reservation.o
 obj-y	+= events/
 obj-y	+= xenbus/
+obj-y	+= arm/
 
 CFLAGS_features.o			:= -fno-stack-protector
 

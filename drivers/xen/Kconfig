@@ -371,4 +371,6 @@ config XEN_VIRTIO_FORCE_GRANT
 	  of the guest memory. This will need support on the backend side
 	  (e.g. qemu or kernel, depending on the virtio device types used).
 
+source "drivers/xen/arm/Kconfig"
+
 endmenu
